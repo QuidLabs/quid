@@ -1,0 +1,10 @@
+[project]
+authors = ["Richard Tiutiun"]
+entry = "main.sw"
+license = "Apache-2.0"
+name = "quid"
+
+[dependencies]
+std = { git = "https://github.com/FuelLabs/sway", branch = "master" }
+quid_abi = { path = "../quid_abi" }
+helpers = { path = "../helpers" }
