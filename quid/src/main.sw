@@ -51,7 +51,11 @@ storage {
         credit: 0, // QD
         debit: 0 // ETH
     },
+    crank: Crank = Crank { done: true, 
+        index: 0, last: 0
+    },
     price: u64 = 1666_000_000, // $1666 // ETH price
+    vol: u64 = 200_000
 }
 
 // #[storage(read, write)]fn save_pledge(owner: Address) {
@@ -66,7 +70,7 @@ storage {
             pledge = Pledge {
                 long: Pod { credit: 0, debit: 0 },
                 short: Pod { credit: 0, debit: 0 },
-                /* stats: PledgeStats {                
+                stats: PledgeStats {                
                     long: Stats { val_eth: 0, 
                         stress_val: 0, avg_val: 0,
                         stress_loss: 0, avg_loss: 0,
@@ -79,7 +83,7 @@ storage {
                     },
                     val_eth_sp: 0, 
                     val_total_sp: 0,
-                }, */
+                },
                 eth: 0, quid: 0, id: owner
             };
         } else {
@@ -396,88 +400,6 @@ impl Quid for Contract {
         // storage.save_pledge(&id, &mut pledge, long_touched, short_touched); TODO
         storage.pledges.insert(who, pledge); // TODO save_pledge
     }
-     /*
-     #[storage(read, write)]fn mint(receiver: Address, amount: u64) -> (u64, u64) {
-        let sender = get_msg_sender_address_or_panic();
-        let h = height();
-        storage.balances.insert(receiver, storage.balances.get(receiver) + amount);
-        return (storage.balances.get(sender), storage.balances.get(sender));
-     }
-     */
-    #[storage(read, write)] fn send(receiver: Address, amount: u64) {
-        let sender = get_msg_sender_address_or_panic();
-        // Reduce the balance of sender
-        let sender_amount = storage.balances.get(sender);
-        assert(sender_amount >= amount);
-        storage.balances.insert(sender, sender_amount - amount);
-
-        // Increase the balance of receiver
-        storage.balances.insert(receiver, storage.balances.get(receiver) + amount);
-
-        log(Sent {
-            from: sender, to: receiver, amount: amount
-        });
-    }
-
-    #[storage(read, write)] fn clear(amt: u64, repay: bool, short: bool) {
-        let deposit = msg_amount();
-        assert(amt > 0 || (deposit > 0
-        && msg_asset_id().into() == ETH_ID));
-
-        let account = get_msg_sender_address_or_panic();
-        if !repay {
-            if short { // ETH ==> QD (short collat), AKA inverting ETH debt
-                // TODO if account == richtobacco.eth
-                // do invertFrom
-                invert(deposit);
-
-                let mut quid = ratio(storage.price, deposit, ONE);        
-                let mut fee_amt = ratio(FEE, quid, ONE);
-                
-                let gf_cut = fee_amt / 11;
-                storage.gfund.short.credit += gf_cut;
-                    
-                quid -= fee_amt;
-                fee_amt -= gf_cut;
-
-                storage.deep.short.debit += fee_amt;
-                
-                storage.balances.insert(account,
-                    storage.balances.get(account) + quid
-                );
-            } 
-            else { // QD ==> ETH (long collat), AKA redeeming $QDebt         
-                redeem(amt);
-        
-                storage.balances.insert(account,
-                    storage.balances.get(account) - amt
-                ); // burn the QD being sold 
-                let mut eth = ratio(ONE, amt, storage.price);
-                let mut fee_amt = ratio(FEE, eth, ONE);
-            
-                let gf_cut = fee_amt / 11;
-                storage.gfund.long.credit += gf_cut;
-                
-                eth -= fee_amt;
-                fee_amt -= gf_cut;
-                
-                storage.deep.long.debit += fee_amt;
-
-                transfer_to_output(eth, ~ContractId::from(ETH_ID), account); // send ETH to redeemer
-            }    
-        } else { // decrement caller's ETH or QDebt without releasing collateral
-            if !short { // repay QD debt, distinct from premium payment which does not burn debt but instead distributes payment ?? TODO
-                storage.balances.insert(account,
-                    storage.balances.get(account) - amt
-                ); // burn the QD being paid in as premiums 
-                turn(amt, true, false, account);
-            }
-            else { // repay ETH debt, distinct from premium payment 
-                turn(deposit, true, true, account);
-            }
-        }
-
-    }
 
     #[storage(read, write)] fn deposit(live: bool, qd_amt: u64, eth_amt: u64) {
         let sender = get_msg_sender_address_or_panic();
@@ -531,7 +453,86 @@ impl Quid for Contract {
         storage.pledges.insert(sender, pledge); // TODO save_pledge
     }
 
-    /* This function exists to allow withdrawal of deposits, either from 
+     /*
+     #[storage(read, write)]fn mint(receiver: Address, amount: u64) -> (u64, u64) {
+        let sender = get_msg_sender_address_or_panic();
+        let h = height();
+        storage.balances.insert(receiver, storage.balances.get(receiver) + amount);
+        return (storage.balances.get(sender), storage.balances.get(sender));
+     }
+     */
+    #[storage(read, write)] fn send(receiver: Address, amount: u64) {
+        let sender = get_msg_sender_address_or_panic();
+        // Reduce the balance of sender
+        let sender_amount = storage.balances.get(sender);
+        assert(sender_amount >= amount);
+        storage.balances.insert(sender, sender_amount - amount);
+
+        // Increase the balance of receiver
+        storage.balances.insert(receiver, storage.balances.get(receiver) + amount);
+
+        log(Sent {
+            from: sender, to: receiver, amount: amount
+        });
+    }
+
+    #[storage(read, write)] fn borrow(amt: u64, short: bool) { 
+        let mut cr: u64 = 0;
+        let deposit = msg_amount();
+        assert(storage.crank.done);
+        if deposit > 0 {
+            assert(msg_asset_id().into() == ETH_ID);
+        }
+        let account = get_msg_sender_address_or_panic();
+        let mut pledge = fetch_pledge(account, true, true);
+
+        if !short {
+            cr = computeCR(storage.price, pledge.long.credit, pledge.long.debit, false);
+            assert(cr == 0 || cr >= MIN_CR); // 0 if there's no debt yet
+            if deposit >= ONE {
+                pledge.long.credit += deposit;
+                storage.live.long.credit += deposit;
+            }
+            let new_debt = pledge.long.debit + amt;
+            assert(new_debt >= (ONE * 1000));
+            
+            cr = computeCR(storage.price, pledge.long.credit, new_debt, false);
+            if cr >= MIN_CR { // requested amount to borrow is within measure of collateral
+                storage.balances.insert(account, 
+                    storage.balances.get(account) + amt
+                );
+                // TODO pull from GFund (or in mint)
+                pledge.long.debit = new_debt;
+            } 
+            else { // instead of throwing a "below MIN_CR" error right away, try to satisfy loan
+                pledge.long = valve(account, false, new_debt, pledge.long); 
+            }
+        } else { // borrowing short
+            if deposit > 0 { /* if they dont have QD and they send in ETH, 
+                we can just immediately invert it and use that as coll */
+                invert(deposit); // QD value of the ETH debt being cleared 
+                pledge.short.credit += ratio(storage.price, deposit, ONE); // QD value of the ETH deposit
+            }
+            cr = computeCR(storage.price, pledge.short.credit, pledge.short.debit, true);
+            assert(cr == 0 || cr >= MIN_CR); 
+            
+            let new_debt = pledge.short.debit + amt;
+
+            let new_debt_in_qd = ratio(storage.price, new_debt, ONE);
+            assert(new_debt_in_qd >= (ONE * 1000));
+            
+            cr = ratio(ONE, pledge.short.credit, new_debt_in_qd);
+            if cr >= MIN_CR { // when borrowing within their means, we disperse ETH that the borrower can sell
+                transfer_to_output(amt, ~ContractId::from(ETH_ID), account); // send ETH to msg.sender
+            } else {
+                pledge.short = valve(account,true, new_debt_in_qd, pledge.short);
+            }
+        }
+        // self.save_pledge(&account, &mut pledge, !short, short);
+        storage.pledges.insert(account, pledge);
+    }
+
+     /* This function exists to allow withdrawal of deposits, either from 
      * a user's SolvencyPool deposit, or LivePool (borrowing) position.
      * Hence, the first boolean parameter's for indicating which pool,
      * & last boolean parameter indicates the currency being withdrawn.
@@ -632,6 +633,66 @@ impl Quid for Contract {
         if do_transfer { // workaround for "borrow after move" compile error
             transfer_to_output(amt_sub_fee, ~ContractId::from(ETH_ID), account); // send ETH to msg.sender
         }
+    }
+
+    #[storage(read, write)] fn clear(amt: u64, repay: bool, short: bool) {
+        let deposit = msg_amount();
+        assert(amt > 0 || (deposit > 0
+        && msg_asset_id().into() == ETH_ID));
+
+        let account = get_msg_sender_address_or_panic();
+        if !repay {
+            if short { // ETH ==> QD (short collat), AKA inverting ETH debt
+                // TODO if account == richtobacco.eth
+                // do invertFrom
+                invert(deposit);
+
+                let mut quid = ratio(storage.price, deposit, ONE);        
+                let mut fee_amt = ratio(FEE, quid, ONE);
+                
+                let gf_cut = fee_amt / 11;
+                storage.gfund.short.credit += gf_cut;
+                    
+                quid -= fee_amt;
+                fee_amt -= gf_cut;
+
+                storage.deep.short.debit += fee_amt;
+                
+                storage.balances.insert(account,
+                    storage.balances.get(account) + quid
+                );
+            } 
+            else { // QD ==> ETH (long collat), AKA redeeming $QDebt         
+                redeem(amt);
+        
+                storage.balances.insert(account,
+                    storage.balances.get(account) - amt
+                ); // burn the QD being sold 
+                let mut eth = ratio(ONE, amt, storage.price);
+                let mut fee_amt = ratio(FEE, eth, ONE);
+            
+                let gf_cut = fee_amt / 11;
+                storage.gfund.long.credit += gf_cut;
+                
+                eth -= fee_amt;
+                fee_amt -= gf_cut;
+                
+                storage.deep.long.debit += fee_amt;
+
+                transfer_to_output(eth, ~ContractId::from(ETH_ID), account); // send ETH to redeemer
+            }    
+        } else { // decrement caller's ETH or QDebt without releasing collateral
+            if !short { // repay QD debt, distinct from premium payment which does not burn debt but instead distributes payment ?? TODO
+                storage.balances.insert(account,
+                    storage.balances.get(account) - amt
+                ); // burn the QD being paid in as premiums 
+                turn(amt, true, false, account);
+            }
+            else { // repay ETH debt, distinct from premium payment 
+                turn(deposit, true, true, account);
+            }
+        }
+
     }
     
 }
@@ -776,8 +837,7 @@ impl Quid for Contract {
 
 // https://twitter.com/1x_Brasil/status/1522663741023731714
 // This function uses math to simulate the final result of borrowing, selling borrowed, depositing to borrow more, and repeating
-#[storage(read, write)] fn valve(id: Address, short: bool, new_debt_in_qd: u64, _live: Pod, _pledge: Pod) -> (Pod, Pod) {
-    let mut live = _live;
+#[storage(read, write)] fn valve(id: Address, short: bool, new_debt_in_qd: u64, _pledge: Pod) -> Pod {
     let mut pledge = _pledge;
     
     let mut check_zero = false;
@@ -829,11 +889,11 @@ impl Quid for Contract {
         pledge.credit = end_coll_in_qd;
         pledge.debit = ratio(ONE, final_debt, storage.price);
         
-        live.credit += qd_to_buy;
+        storage.live.short.credit += qd_to_buy;
         let eth_to_sell = ratio(ONE, qd_to_buy, storage.price);
         
         // ETH spent on buying QD collateral must be paid back by the borrower to unlock the QD
-        live.debit += eth_to_sell;
+        storage.live.short.debit += eth_to_sell;
         
         // TODO
         // we must first redeem QD that we mint out of thin air to purchase the ETH, 
@@ -849,10 +909,10 @@ impl Quid for Contract {
 
         let delta_coll = end_coll - pledge.credit;
             
-        live.credit += delta_coll;
+        storage.live.long.credit += delta_coll;
             
         // QD spent on buying ETH collateral must be paid back by the borrower to unlock the ETH
-        live.debit += qd_to_buy;
+        storage.live.long.debit += qd_to_buy;
 
         /******/ redeem(qd_to_buy); /******/
     }
@@ -884,5 +944,5 @@ impl Quid for Contract {
         );
     }
     assert(computeCR(storage.price, pledge.credit, pledge.debit, short) >= MIN_CR); 
-    return (live, pledge);
+    return pledge;
 }

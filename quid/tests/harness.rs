@@ -5,8 +5,12 @@ abigen!(MyContract, "out/debug/quid-abi.json");
 
 async fn get_contract_instance() -> (MyContract, ContractId) {
     // Launch a local network and deploy the contract
-    let wallet = launch_provider_and_get_wallet().await;
-
+    let mut wallets = launch_custom_provider_and_get_wallets(
+        WalletsConfig::new(Some(1), Some(1000000), Some(1_000_000)),
+        None,
+    )
+    .await;
+    let wallet = wallets.pop().unwrap();
     let id = Contract::deploy(
         "./out/debug/quid.bin",
         &wallet,
@@ -17,10 +21,8 @@ async fn get_contract_instance() -> (MyContract, ContractId) {
     )
     .await
     .unwrap();
-
-    let instance = MyContract::new(id.to_string(), wallet);
-
-    (instance, id)
+    let instance = MyContractBuilder::new(id.to_string(), wallet).build();
+    (instance, id.into())
 }
 
 #[tokio::test]
