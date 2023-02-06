@@ -44,7 +44,7 @@ pub struct Pledge { // each User is a Pledge, whether or not borrowing
     // borrowing users will have non-zero values in `long` and `short`
     long: Pod, // debt in $QD, collateral in ETH
     short: Pod, // debt in ETH, collateral in $QD
-    // stats: PledgeStats, // risk management metrics
+    stats: PledgeStats, // risk management metrics
     eth: u64, // SolvencyPool deposit of ETH
     quid: u64, // SolvencyPool deposit of $QD
     id: Address,
@@ -71,7 +71,7 @@ abi Quid {
 
     #[storage(read, write)] fn clear (amount: u64, repay: bool, short: bool); 
 
-    // #[storage(read, write)] fn borrow (amount: u128, short: bool); 
+    #[storage(read, write)] fn borrow (amount: u64, short: bool); 
 
     // #[storage(read, write)] fn update (); 
 }

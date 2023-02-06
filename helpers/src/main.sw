@@ -32,7 +32,7 @@ pub fn ratio(multiplier: u64, numerator: u64, denominator: u64) -> u64 {
     }
 }
 
-pub fn computeCR(_price: u64, _collat: u64, _debt: u64, _short: bool) -> u64 {
+pub fn calc_cr(_price: u64, _collat: u64, _debt: u64, _short: bool) -> u64 {
     if _debt > 0 {
         if _collat > 0 {
             if _short {
@@ -50,6 +50,26 @@ pub fn computeCR(_price: u64, _collat: u64, _debt: u64, _short: bool) -> u64 {
         return ~u64::max();
     }
     return 0;
+}
+
+// Newton's method of integer square root. 
+// pub fn integer_sqrt(value: U256) -> U256 {
+//     let mut guess: U256 = (value + U256::one()) >> 1;
+//     let mut res = value;
+//     while guess < res {
+//         res = guess;
+//         guess = (value / guess + guess) >> 1;
+//     }
+//     res
+// }
+
+pub fn RationalApproximation(t: u64) -> u64 {
+    // Abramowitz and Stegun formula 26.2.23.
+    // The absolute value of the error should be less than 4.5 e-4.
+    let c = [251552, 802853, 10328]; // TODO div by 10^6
+    let d = [143279, 189269, 1308]; // TODO ""  "" ""
+    t - ((c[2] * t + c[1]) * t + c[0]) / 
+        (((d[2] * t + d[1]) * t + d[0]) * t + 1)
 }
 
 

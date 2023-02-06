@@ -1,38 +1,36 @@
 [[package]]
 name = 'core'
-source = 'path+from-root-C3A89E5FB60D0337'
-dependencies = []
+source = 'path+from-root-0A242FA4B81382A3'
 
 [[package]]
 name = 'core'
-source = 'path+from-root-FA950BD4F5DF0A76'
-dependencies = []
+source = 'path+from-root-A5A9AFB187495FC2'
 
 [[package]]
 name = 'helpers'
 source = 'path+from-root-E06FF6A941B48473'
-dependencies = ['std git+https://github.com/fuellabs/sway?tag=v0.19.1#1202e790c119ff9f04c847ecaab3411cfaf32f94']
+dependencies = ['std git+https://github.com/fuellabs/sway?tag=v0.31.3#12ad8423811d566972dd75fbb954cdb95afde8d8']
 
 [[package]]
 name = 'quid'
-source = 'root'
+source = 'member'
 dependencies = [
     'helpers',
     'quid_abi',
-    'std git+https://github.com/FuelLabs/sway?branch=master#3b9413f4ba21c7d12d06f371adf25046e389fa7b',
+    'std git+https://github.com/FuelLabs/sway?branch=master#ec819e606e39607534cf82ce39f05b2ae51e7b2e',
 ]
 
 [[package]]
 name = 'quid_abi'
 source = 'path+from-root-E06FF6A941B48473'
-dependencies = ['std git+https://github.com/fuellabs/sway?tag=v0.19.1#1202e790c119ff9f04c847ecaab3411cfaf32f94']
+dependencies = ['std git+https://github.com/fuellabs/sway?tag=v0.31.3#12ad8423811d566972dd75fbb954cdb95afde8d8']
 
 [[package]]
 name = 'std'
-source = 'git+https://github.com/FuelLabs/sway?branch=master#3b9413f4ba21c7d12d06f371adf25046e389fa7b'
-dependencies = ['core path+from-root-FA950BD4F5DF0A76']
+source = 'git+https://github.com/FuelLabs/sway?branch=master#ec819e606e39607534cf82ce39f05b2ae51e7b2e'
+dependencies = ['core path+from-root-0A242FA4B81382A3']
 
 [[package]]
 name = 'std'
-source = 'git+https://github.com/fuellabs/sway?tag=v0.19.1#1202e790c119ff9f04c847ecaab3411cfaf32f94'
-dependencies = ['core path+from-root-C3A89E5FB60D0337']
+source = 'git+https://github.com/fuellabs/sway?tag=v0.31.3#12ad8423811d566972dd75fbb954cdb95afde8d8'
+dependencies = ['core path+from-root-A5A9AFB187495FC2']

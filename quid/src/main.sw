@@ -177,7 +177,7 @@ storage {
     let mut cr: u64 = 0;
     if short {
         nums = short_save(id, sPod, lPod, available);
-        cr = computeCR(storage.price, nums.1, nums.3, true);
+        cr = calc_cr(storage.price, nums.1, nums.3, true);
         if cr < ONE { // we are liquidating this pledge
             // undo asset displacement by short_save
             let now_available: u64 = storage.balances.get(id);
@@ -204,7 +204,7 @@ storage {
         }
     } else {
         nums = long_save(id, sPod, lPod, available);
-        cr = computeCR(storage.price, nums.1, nums.3, false);
+        cr = calc_cr(storage.price, nums.1, nums.3, false);
         if cr < ONE {
             // undo asset displacement by long_save
             let now_available: u64 = storage.balances.get(id);
@@ -337,6 +337,7 @@ storage {
 }
 
 impl Quid for Contract {
+    // let h = height();
 
     // Close out caller's borrowing position by paying
     // off all pledge's own debt with own collateral
@@ -344,7 +345,7 @@ impl Quid for Contract {
         let sender = get_msg_sender_address_or_panic();
         let mut pledge = fetch_pledge(sender, false, true);
         if short {
-            let cr = computeCR(storage.price, pledge.short.credit, pledge.short.debit, true);
+            let cr = calc_cr(storage.price, pledge.short.credit, pledge.short.debit, true);
             if cr > ONE { // mainly a sanity check, an underwater pledge will almost certainly
                 // take QD and sell it for ETH internally in the interest of proper accounting
                 let qd = ratio(storage.price, pledge.short.debit, ONE);
@@ -353,7 +354,7 @@ impl Quid for Contract {
                 turn( pledge.short.debit, false, true, sender);
             }
         } else {
-            let cr = computeCR(storage.price, pledge.long.credit, pledge.long.debit, false);
+            let cr = calc_cr(storage.price, pledge.long.credit, pledge.long.debit, false);
             if cr > ONE {
                 let eth = ratio(ONE, pledge.long.debit, storage.price);
                 invert(eth);
@@ -374,7 +375,7 @@ impl Quid for Contract {
         // as high as possible in the interest of rescuing
     
         // TODO clip biggest one first, or the lowest CR first if same size 
-        let mut cr = computeCR(storage.price, pledge.long.credit, pledge.long.debit, false);
+        let mut cr = calc_cr(storage.price, pledge.long.credit, pledge.long.debit, false);
         // TODO if the position is in the user defined range, shrink it
         if cr < MIN_CR {
             let nums = try_kill(who, Pod { credit: pledge.quid, debit: pledge.eth }, 
@@ -386,7 +387,7 @@ impl Quid for Contract {
             pledge.quid = nums.2;
             long_touched = true;
         }
-        cr = computeCR(storage.price, pledge.short.credit, pledge.short.debit, true);
+        cr = calc_cr(storage.price, pledge.short.credit, pledge.short.debit, true);
         if cr < MIN_CR {
             let nums = try_kill(who, Pod { credit: pledge.quid, debit: pledge.eth }, 
                 Pod { credit: pledge.short.credit, debit: pledge.short.debit }, true);
@@ -452,15 +453,7 @@ impl Quid for Contract {
         }
         storage.pledges.insert(sender, pledge); // TODO save_pledge
     }
-
-     /*
-     #[storage(read, write)]fn mint(receiver: Address, amount: u64) -> (u64, u64) {
-        let sender = get_msg_sender_address_or_panic();
-        let h = height();
-        storage.balances.insert(receiver, storage.balances.get(receiver) + amount);
-        return (storage.balances.get(sender), storage.balances.get(sender));
-     }
-     */
+     
     #[storage(read, write)] fn send(receiver: Address, amount: u64) {
         let sender = get_msg_sender_address_or_panic();
         // Reduce the balance of sender
@@ -487,7 +480,7 @@ impl Quid for Contract {
         let mut pledge = fetch_pledge(account, true, true);
 
         if !short {
-            cr = computeCR(storage.price, pledge.long.credit, pledge.long.debit, false);
+            cr = calc_cr(storage.price, pledge.long.credit, pledge.long.debit, false);
             assert(cr == 0 || cr >= MIN_CR); // 0 if there's no debt yet
             if deposit >= ONE {
                 pledge.long.credit += deposit;
@@ -496,7 +489,7 @@ impl Quid for Contract {
             let new_debt = pledge.long.debit + amt;
             assert(new_debt >= (ONE * 1000));
             
-            cr = computeCR(storage.price, pledge.long.credit, new_debt, false);
+            cr = calc_cr(storage.price, pledge.long.credit, new_debt, false);
             if cr >= MIN_CR { // requested amount to borrow is within measure of collateral
                 storage.balances.insert(account, 
                     storage.balances.get(account) + amt
@@ -513,7 +506,7 @@ impl Quid for Contract {
                 invert(deposit); // QD value of the ETH debt being cleared 
                 pledge.short.credit += ratio(storage.price, deposit, ONE); // QD value of the ETH deposit
             }
-            cr = computeCR(storage.price, pledge.short.credit, pledge.short.debit, true);
+            cr = calc_cr(storage.price, pledge.short.credit, pledge.short.debit, true);
             assert(cr == 0 || cr >= MIN_CR); 
             
             let new_debt = pledge.short.debit + amt;
@@ -534,7 +527,7 @@ impl Quid for Contract {
 
      /* This function exists to allow withdrawal of deposits, either from 
      * a user's SolvencyPool deposit, or LivePool (borrowing) position.
-     * Hence, the first boolean parameter's for indicating which pool,
+     * Thus, the first boolean parameter's for indicating which pool,
      * & last boolean parameter indicates the currency being withdrawn.
     */    
     #[storage(read, write)] fn renege(amt: u64, sp: bool, qd: bool) {
@@ -555,7 +548,7 @@ impl Quid for Contract {
             if qd {
                 storage.live.short.credit -= amt;
                 pledge.short.credit -= amt;
-                cr = computeCR(storage.price, pledge.short.credit, pledge.short.debit, true);
+                cr = calc_cr(storage.price, pledge.short.credit, pledge.short.debit, true);
                 assert(cr >= MIN_CR);
                             
                 storage.balances.insert(account, 
@@ -568,7 +561,7 @@ impl Quid for Contract {
             else {
                 do_transfer = true; // we are sending ETH to the user
                 pledge.long.credit -= amt;
-                cr = computeCR(storage.price, pledge.long.credit, pledge.long.debit, false);
+                cr = calc_cr(storage.price, pledge.long.credit, pledge.long.debit, false);
                 assert(cr >= MIN_CR);
                 let eth = storage.live.long.credit;
 
@@ -697,6 +690,11 @@ impl Quid for Contract {
     
 }
 
+#[storage(read, write)] fn swap(amt: u64, short: bool) -> u64 {
+    /// clip everybody in 110 - 111 pro rata, no need to optimize
+
+}
+
 #[storage(read, write)] fn turn(amt: u64, repay: bool, short: bool, sender: Address) -> u64 {
     let mut min: u64 = 0;
     let mut pledge = fetch_pledge(sender, false, false);
@@ -782,11 +780,10 @@ impl Quid for Contract {
 }
 
 /*
-    A debit to a liability account means the business doesn't owe so much 
-    (i.e. reduces the liability), and a credit to a liability account means 
-    the business owes more (i.e. increases the liability).
-    for an income account, you credit to increase it and debit to decrease it
-    for an expense account, you debit to increase it, and credit to decrease it
+    A debit to a liability account means the amount owed is reduced,
+    and a credit to a liability account means it's increased. For an 
+    income account, you credit to increase it and debit to decrease it;
+    expense account is reversed: gets debited up, and credited down 
 */
 // pub(crate) fn invertFrom(quid: u64) {
 //     // TODO move turnFrom piece here and let `update` bot handle this using GFund for liquidity
@@ -943,6 +940,6 @@ impl Quid for Contract {
             now_liq_qd + to_mint
         );
     }
-    assert(computeCR(storage.price, pledge.credit, pledge.debit, short) >= MIN_CR); 
+    assert(calc_cr(storage.price, pledge.credit, pledge.debit, short) >= MIN_CR); 
     return pledge;
 }
