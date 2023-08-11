@@ -59,8 +59,18 @@ storage {
 }
 
 // #[storage(read, write)]fn save_pledge(owner: Address) {
+    // 
+    // 
+    // calculate % of total that this pledge absorbed
 
+    // 
+    // pay riders
 // }
+
+#[storage(read, write)]fn buy_back(owner: Address) {
+    // when fully liquidated, a borrower's collateral is 
+    // in purgatory.
+}
 
 #[storage(read, write)]fn fetch_pledge(owner: Address, create: bool, sync: bool) -> Pledge {
     let mut pledge = storage.pledges.get(owner);
@@ -85,6 +95,9 @@ storage {
                     val_total_sp: 0,
                 },
                 eth: 0, quid: 0, id: owner
+
+                // riders
+                // { id: % }
             };
         } else {
             revert(0);
@@ -178,11 +191,13 @@ storage {
     if short {
         nums = short_save(id, sPod, lPod, available);
         cr = calc_cr(storage.price, nums.1, nums.3, true);
-        if cr < ONE { // we are liquidating this pledge
-            // undo asset displacement by short_save
+        if cr < ONE { // fully liquidating the short side
+            //                                       ^
+            // undo asset displacement by short_save |
+            // because it wasn't enough to prevent __|
             let now_available: u64 = storage.balances.get(id);
             if available > now_available {
-                storage.balances.insert(id, available - now_available);
+                storage.balances.insert(id, available);
             }
             if sPod.credit > nums.0 { // undo SP QD changes
                 let delta = sPod.credit - nums.0;
@@ -194,6 +209,10 @@ storage {
                 storage.live.short.debit += delta;
                 storage.brood.debit += delta;
             }
+            // TODO record the price of liquidation
+            // add it to buy-backable collateral (average the price)
+            // _end TODO 
+
             // move liquidated assets from LivePool to deepPool
             snatch(nums.3, nums.1, true);
             return (sPod.credit, 0, sPod.debit, 0); // zeroed out pledge
@@ -205,11 +224,12 @@ storage {
     } else {
         nums = long_save(id, sPod, lPod, available);
         cr = calc_cr(storage.price, nums.1, nums.3, false);
-        if cr < ONE {
+        if cr < ONE { // fully liquidating the long side
+            //                                      
             // undo asset displacement by long_save
             let now_available: u64 = storage.balances.get(id);
             if available > now_available {
-                storage.balances.insert(id, available - now_available);
+                storage.balances.insert(id, available);
             }
             if sPod.debit > nums.0 { // undo SP ETH changes
                 let delta = sPod.debit - nums.0;
@@ -221,6 +241,10 @@ storage {
                 storage.live.long.debit += delta; 
                 storage.brood.credit += delta;
             }
+            // TODO record the price of liquidation
+            // add it to sellow-backable collateral (average the price)
+            // _end TODO 
+            
             snatch(nums.3, nums.1, false); 
             return (sPod.debit, 0, sPod.credit, 0); // zeroed out pledge
         } else if cr < MIN_CR {
@@ -692,6 +716,7 @@ impl Quid for Contract {
 
 #[storage(read, write)] fn swap(amt: u64, short: bool) -> u64 {
     /// clip everybody in 110 - 111 pro rata, no need to optimize
+    /// 
 
 }
 
@@ -731,6 +756,8 @@ impl Quid for Contract {
     } 
     return min; // how much was redeemed, used for total tallying in turnFrom 
 }
+
+// TODO layer it in
 
 #[storage(read, write)] fn redeem(quid: u64) {
     let mut bought: u64 = 0; // ETH collateral to be released from deepPool's long portion
@@ -833,7 +860,8 @@ impl Quid for Contract {
 }
 
 // https://twitter.com/1x_Brasil/status/1522663741023731714
-// This function uses math to simulate the final result of borrowing, selling borrowed, depositing to borrow more, and repeating
+// This function uses math to simulate the final result of borrowing, selling borrowed, depositing to borrow more, again...
+
 #[storage(read, write)] fn valve(id: Address, short: bool, new_debt_in_qd: u64, _pledge: Pod) -> Pod {
     let mut pledge = _pledge;
     
