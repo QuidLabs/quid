@@ -1,0 +1,5 @@
+[project]
+authors = ["John Quid <john@quid.io>"]
+entry = "interface.sw"
+license = "BSL 1.1"
+name = "libraries"

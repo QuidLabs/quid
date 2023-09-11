@@ -1,9 +1,0 @@
-[project]
-authors = ["Johnny Quid"]
-entry = "main.sw"
-license = "MIT"
-name = "quid"
-
-[dependencies]
-quid_abi = { path = "../quid_abi" }
-helpers = { path = "../helpers" }
