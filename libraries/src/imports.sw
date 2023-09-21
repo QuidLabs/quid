@@ -6,6 +6,10 @@ use std::{
     u128::U128
 };
 
+pub enum LiquidationError {
+    UnableToLiquidate: (),
+}
+
 pub enum PriceError {
     NotInitialized: (),
 }
@@ -52,15 +56,16 @@ pub struct PledgeStats {
 pub struct Pledge { // each User pledges
     live: Pool, // surety in $QD or ETH
     stats: PledgeStats, // risk management metrics
-    ether: u64, // SolvencyPool deposit of NEAR
+    ether: u64, // SolvencyPool deposit of ETH
     quid: u64, // SolvencyPool deposit of $QD
+    // index: u64
 }
 
 pub struct Crank {
     done: bool, // currently updating
     index: u64, // amount of surety
     last: u64, // timestamp of last time Crank was updated
-    price: u64,
+    price: u64, // TODO timestamp of last time price was update
 }
 
 pub const ONE: u64 = 1_000_000_000; // 9 digits of precision, same as ETH
@@ -104,10 +109,11 @@ pub fn calc_cr(_price: u64, _surety: u64, _debt: u64, _short: bool) -> u64 {
         }
         else {
             return 0;
+            // TODO revert actually?
         }
     } 
     else if _surety > 0 {
         return u64::max();
     }
-    return 0;
+    return 0; // this is normal, means no leverage
 }

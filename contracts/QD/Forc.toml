@@ -6,5 +6,5 @@ name = "QD"
 
 [dependencies]
 libraries = { path = "../../libraries" }
-# signed_integers = { git = "https://github.com/fuellabs/sway-libs", branch = "master" }
+signed_integers = { git = "https://github.com/fuellabs/sway-libs", branch = "master" }
 # fixed_point = { git = "https://github.com/fuellabs/sway-libs", branch = "master" }
