@@ -6,6 +6,14 @@ use std::{
     u128::U128
 };
 
+use signed_integers::i64::I64;
+use fixed_point::ufp64::UFP64;
+
+
+pub enum VoteError {
+    BadVote: (),
+}
+
 pub enum LiquidationError {
     UnableToLiquidate: (),
 }
@@ -38,8 +46,8 @@ pub struct Pool { // Pools have a long Pod and a short Pod
 
 pub struct Stats {
     val_ether: u64, // $ value of ETH assets
-    stress_val: u64, //  $ value of the Solvency Pool in bad stress 
-    avg_val: u64, // $ value of the Solvency Pool in average stress 
+    stress_val: u64, //  $ value of the Solvency Pool in bad market stress, tail risk
+    avg_val: u64, // $ value of the Solvency Pool in average stress, 25-50 % price shock
     stress_loss: u64, // % loss that Solvency pool would suffer in a bad stress event
     avg_loss: u64, // % loss that Solvency pool would suffer in an avg stress event
     premiums: u64, // $ amount of premiums borrower would pay in a year 
@@ -55,10 +63,15 @@ pub struct PledgeStats {
 
 pub struct Pledge { // each User pledges
     live: Pool, // surety in $QD or ETH
+    // TODO to_be_paid gets incremented on every borrow ??
+    // this is paid from the body of the collateral (
+    // coming from an external source )
+    //
     stats: PledgeStats, // risk management metrics
     ether: u64, // SolvencyPool deposit of ETH
     quid: u64, // SolvencyPool deposit of $QD
     // index: u64
+    // last_voted: u64, // TODO do we need to save the vote itself
 }
 
 pub struct Crank {
@@ -66,7 +79,10 @@ pub struct Crank {
     index: u64, // amount of surety
     last: u64, // timestamp of last time Crank was updated
     price: u64, // TODO timestamp of last time price was update
+    sum_w_k: u64, // sum(W[0..k])
+    k: u64, // approx. index of median (+/- 1)
 }
+
 
 pub const ONE: u64 = 1_000_000_000; // 9 digits of precision, same as ETH
 pub const MIN_CR: u64 = 1_100_000_000; // 9 digits of precision, same as ETH

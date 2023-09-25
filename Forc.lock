@@ -2,6 +2,7 @@
 name = 'QD'
 source = 'member'
 dependencies = [
+    'fixed_point',
     'libraries',
     'signed_integers',
     'std',
@@ -12,13 +13,22 @@ name = 'core'
 source = 'path+from-root-EB296BD18C0E4CC4'
 
 [[package]]
-name = 'libraries'
-source = 'path+from-root-163A23D64F0174CB'
+name = 'fixed_point'
+source = 'git+https://github.com/fuellabs/sway-libs?branch=master#d52b60aa7a85c3ac04761320eccabac190828321'
 dependencies = ['std']
 
 [[package]]
+name = 'libraries'
+source = 'path+from-root-163A23D64F0174CB'
+dependencies = [
+    'fixed_point',
+    'signed_integers',
+    'std',
+]
+
+[[package]]
 name = 'signed_integers'
-source = 'git+https://github.com/fuellabs/sway-libs?branch=master#db5074589fe570d84c6c3ea24471b759a6fd7950'
+source = 'git+https://github.com/fuellabs/sway-libs?branch=master#d52b60aa7a85c3ac04761320eccabac190828321'
 dependencies = ['std']
 
 [[package]]

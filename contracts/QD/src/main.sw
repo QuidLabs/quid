@@ -25,12 +25,31 @@ use std::{
     storage::storage_vec::*,
 };
 
+use signed_integers::i64::I64;
+use fixed_point::ufp64::UFP64;
+
 storage {
-    addresses: StorageVec<Address> = StorageVec {}, 
+    addresses: StorageVec<Address> = StorageVec {}, // store addresses once
     pledges: StorageMap<Address, Pledge> = StorageMap {},
-    sorted_shorts: StorageVec<u64> = StorageVec {}, 
-    sorted_longs: StorageVec<u64> = StorageVec {},
-    // votes 
+    sorted_shorts: StorageVec<u64> = StorageVec {}, // instead of twice here
+    sorted_longs: StorageVec<u64> = StorageVec {}, // and here...u64 is less space
+    // TODO map storing votes by address
+
+    stats: PledgeStats = PledgeStats { // global stats
+        long: Stats { val_ether: 0, 
+            stress_val: 0, avg_val: 0,
+            stress_loss: 0, avg_loss: 0,
+            premiums: 0, rate: 0,
+        }, 
+        short: Stats { val_ether: 0, 
+            stress_val: 0, avg_val: 0,
+            stress_loss: 0, avg_loss: 0,
+            premiums: 0, rate: 0,
+        }, 
+        val_ether_sp: 0, 
+        val_total_sp: 0,
+    },
+
     live: Pool = Pool { // Active borrower assets
         long: Pod { credit: 0, debit: 0, }, // ETH, QD
         short: Pod { credit: 0, debit: 0, }, // QD, ETH
@@ -48,13 +67,14 @@ storage {
         credit: 0, // QD
         debit: 0 // ETH
     },
-    crank: Crank = Crank { done: true, 
-        index: 0, last: 0, price: ONE // eth price in usd / qd per usd
+    crank: Crank = Crank { done: true, // used for updating pledges 
+        index: 0, last: 0, price: ONE, // eth price in usd / qd per usd
+        sum_w_k: 0, k: 0, // used for weighted median rebalancer
     },
+    // the following used for weighted median voting
+    target_weights: StorageVec<u64> = StorageVec {}, 
+    target: u64 = 0,
 }
-
-// private functions before public
-use signed_integers::i64::I64;
 
 /**
 #[storage(read, write)] fn valve(id: Address, short: bool, new_debt_in_qd: u64, _pledge: Pod) -> Pod {
@@ -167,6 +187,84 @@ use signed_integers::i64::I64;
 }
 */
 
+/**  Weighted Median Algorithm for Solvency Target Voting
+ *  Find value of k in range(1, len(Weights)) such that 
+ *  sum(Weights[0:k]) = sum(Weights[k:len(Weights)+1])
+ *  = sum(Weights) / 2
+ *  If there is no such value of k, there must be a value of k 
+ *  in the same range range(1, len(Weights)) such that 
+ *  sum(Weights[0:k]) > sum(Weights) / 2
+*/
+
+#[storage(read, write)] fn weights_init() {
+    let mut i = 0; 
+    // let mut n = 125; 
+    while i < 21 { // 21 elements total
+        storage.target_weights.push(0);
+        // n += 5;
+        i += 1;
+    }
+    // assert(n == 225)
+}
+
+#[storage(read, write)] fn rebalance(new_stake: u64, new_vote: u64, 
+                                     old_stake: u64, old_vote: u64) {
+    
+    require(new_vote >= 125 && new_vote <= 225 
+    && new_vote % 5 == 0, VoteError::BadVote);
+    if storage.target_weights.len() != 20 {
+        weights_init();
+    }
+    let mut median = storage.target.read();
+    let mut crank = storage.crank.read();
+    let stats = storage.stats.read();
+    let total = stats.val_total_sp;
+    let mid_stake = total / 2;
+
+    if old_vote != 0 && old_stake != 0 {
+        let old_index = (old_vote - 125) / 5;
+        storage.target_weights.set(old_index,
+            storage.target_weights.get(old_index).unwrap().read() - old_stake
+        );
+        if old_vote <= median {   
+            crank.sum_w_k -= old_stake;
+        }
+    }
+    let index = (new_vote - 125) / 5;
+    if new_stake != 0 {
+         storage.target_weights.set(index,
+            storage.target_weights.get(index).unwrap().read() + new_stake
+        );
+    }
+    if new_vote <= median {
+        crank.sum_w_k += new_stake;
+    }		  
+    if total != 0 && mid_stake != 0 {
+        if median > new_vote {
+            while crank.k >= 1 && ((crank.sum_w_k - storage.target_weights.get(crank.k).unwrap().read()) >= mid_stake) {
+                crank.sum_w_k -= storage.target_weights.get(crank.k).unwrap().read();
+                crank.k -= 1;			
+            }
+        } else {
+            while crank.sum_w_k < mid_stake {
+                crank.k += 1;
+                crank.sum_w_k += storage.target_weights.get(crank.k).unwrap().read();
+            }
+        }
+        median = (crank.k * 5) + 125; // convert index to target
+        
+        // TODO can sometimes be a number not divisible by 5, probably fine
+        if crank.sum_w_k == mid_stake { 
+            let intermedian = median + ((crank.k + 1) * 5) + 125;
+            median = intermedian / 2;
+        }
+    }  else {
+        crank.sum_w_k = 0;
+    }
+    storage.crank.write(crank);
+    storage.target.write(median);
+}
+
 #[storage(read, write)] fn fetch_pledge(owner: Address, create: bool, sync: bool) -> Pledge {
     let key = storage.pledges.get(owner);
     let mut pledge = Pledge {
@@ -202,6 +300,7 @@ use signed_integers::i64::I64;
         // pass it along to try_kill to save gas on reads TODO
         let mut long_touched = false;
         let mut short_touched = false;
+        
         // Should it trigger auto-redeem / short save 1.1 CR ?
         // short_save from lick
 
@@ -300,6 +399,7 @@ impl Quid for Contract
         }   
     }
 
+    // TODO set old stake
     #[payable]
     #[storage(read, write)] fn deposit(live: bool, long: bool) 
     {
@@ -316,6 +416,7 @@ impl Quid for Contract
                         let qd = min(pledge.live.long.debit, amt);
                         pledge.live.long.debit -= qd;
                         amt -= qd;
+                        // TODO should we burn QD from the supply?
                     }
                     if amt > 0 { // TODO
                         // redeem remaining QD 
@@ -344,6 +445,8 @@ impl Quid for Contract
                         let eth = min(pledge.live.short.debit, amt);
                         pledge.live.short.debit -= eth;
                         amt -= eth;
+                        // TODO we can't burn the ETH for paying down the
+                        // debt, so what do we do with it? 
                     }
                     if amt > 0 { // TODO
                         // invert remaining ETH
@@ -367,6 +470,8 @@ impl Quid for Contract
      * Thus, the first boolean parameter's for indicating which pool,
      * & last boolean parameter indicates currency being withdrawn. 
      */
+    // TODO set old stake to current stake, 
+    // at the end update global total, delta since 
     #[storage(read, write)] fn withdraw(amt: u64, qd: bool, sp: bool) 
     {    
         let crank = storage.crank.read();
@@ -525,8 +630,6 @@ impl Quid for Contract
     }
 }
 
-
-
 // A debit to a liability account means the amount owed is reduced,
 // and a credit to a liability account means it's increased. For an 
 // income (LP) account, you credit to increase it and debit to decrease it;
@@ -683,11 +786,18 @@ impl Quid for Contract
     /* Liquidation protection does an off-setting where deficit margin (delta from min CR)
     in a Pledge can be covered by either its SP deposit, or possibly (TODO) the opposite 
     borrowing position. However, it's rare that a Pledge will borrow both long & short. */
+
+    // TODO if the crypto that is in this LP position came from SP,
+    // we must decrease the SP balance accordingly or there will be
+    // a double spend when it re-enters the SP from DP...and it will
+    // only leave LP to go into DP if saving the pledge didn't work.
     
     let mut nums: (u64, u64, u64, u64) = (0, 0, 0, 0);
     let mut cr: u64 = 0;
+
     let old_live = storage.live.read();
     let old_blood = storage.blood.read();
+
     if short {
         nums = short_save(SPod, LPod, price);
         cr = calc_cr(price, nums.1, nums.3, true); // side
@@ -760,6 +870,7 @@ impl Quid for Contract
         } 
         else if cr < MIN_CR {
             let res = shrink(nums.1, nums.3, false); // handles pool balances
+            // instead, take some QD from DP to payoff the debt, and send e
             nums.1 = res.0;
             nums.3 = res.1;
         }
