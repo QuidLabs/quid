@@ -388,7 +388,7 @@ impl Quid for Contract
             // the QD that was surety, we were able to clear some
             // long liquidatons along the way, destroying debt
             // blood.debit += 
-        } else { // TODO all the same logic applies in shrink
+        } else { // TODO all the same logic as above applies in shrink
             let eth = ratio(ONE, pledge.live.long.debit, crank.price);
             invert(eth);
              // TODO dont go into deep first go into SP
@@ -694,7 +694,9 @@ impl Quid for Contract
     let mut live = storage.live.read();
     let crank = storage.crank.read();
     require(crank.price > 0, PriceError::NotInitialized);
-    /*  Shrinking is atomically selling an amount of collateral and 
+    /*  Positions with CR below 1 are shit out of luck, but let's say
+        105%...it's possible to restore 110 CR by shrinking about half
+        Shrinking is atomically selling an amount of collateral and 
         immediately using the exact output of that to reduce debt to
         get its CR up to min. How to calculate amount to be sold:
         CR = (coll - x) / (debt - x)
