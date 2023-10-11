@@ -14,7 +14,7 @@ source = 'path+from-root-EB296BD18C0E4CC4'
 
 [[package]]
 name = 'fixed_point'
-source = 'git+https://github.com/fuellabs/sway-libs?branch=master#d52b60aa7a85c3ac04761320eccabac190828321'
+source = 'git+https://github.com/fuellabs/sway-libs?branch=master#5257dc7f19d1893df749cd84240fee4158a12481'
 dependencies = ['std']
 
 [[package]]
@@ -28,7 +28,7 @@ dependencies = [
 
 [[package]]
 name = 'signed_integers'
-source = 'git+https://github.com/fuellabs/sway-libs?branch=master#d52b60aa7a85c3ac04761320eccabac190828321'
+source = 'git+https://github.com/fuellabs/sway-libs?branch=master#5257dc7f19d1893df749cd84240fee4158a12481'
 dependencies = ['std']
 
 [[package]]
