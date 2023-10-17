@@ -29,7 +29,6 @@ use signed_integers::i64::I64;
 use fixed_point::ufp128::UFP128;
 use fixed_point::ifp256::IFP256;
 
-
 storage {
     addresses: StorageVec<Address> = StorageVec {}, // store addresses once
     pledges: StorageMap<Address, Pledge> = StorageMap {},
@@ -653,7 +652,6 @@ impl Quid for Contract
         storage.pledges.insert(sender, pledge); // TODO save_pledge
     }
 
-
     /* Function exists to allow withdrawal of LP and SP deposits, 
      * from LP back into SP or out. From SP, only QD (selling to DP)
      * a user's SolvencyPool deposit, or LivePool (borrowing) position.
@@ -664,22 +662,21 @@ impl Quid for Contract
     // at the end update global total, delta since 
     // if withdraw with msg_amount > 0, it's a borrow 
     // which uses the valve function if the QD < 10x
-    #[storage(read, write)] fn withdraw(amt: u64, qd: bool, sp: bool) 
-    {    
+    #[storage(read, write)] fn withdraw(amt: u64, qd: bool, sp: bool) {    
         let crank = storage.crank.read();
         require(crank.price > ONE, PriceError::NotInitialized);
         require(amt > 0, AssetError::BelowMinimum);
         
         let account = get_msg_sender_address_or_panic();
         let mut pledge = fetch_pledge(account, false, true);
+        
         // TODO if withdrawal out from SP and not into it
         // sync must be true because what if timing withdrawl
         // right before liquidation, takes in % of losses owed
         // as a % of the deposit being withdrawn. 
-        
+
         let mut least: u64 = 0; 
         let mut cr: u64 = 0; 
-
         if !qd {
             if !sp {
                 let mut pool = storage.live.read(); // Pay withdraw fee
@@ -725,7 +722,171 @@ impl Quid for Contract
         }
         storage.pledges.insert(account, pledge); 
     }
+
 }
+
+// 
+#[storage(read, write)] fn sp_stress(maybe_addr: Option<Address>, short: bool) -> UFP128 {
+    let mut stats = storage.stats.read();
+    let crank = storage.crank.read();
+    let blood = storage.blood.read();
+    
+    let ivol = UFP128::from_uint(crank.vol); // get annualized volatility of ETH
+    let price = UFP128::from_uint(crank.price);
+    
+    let mut global = true;
+    let mut iW = UFP128::zero(); 
+    let mut jW = UFP128::zero();
+
+    let one = UFP128::from_uint(ONE);
+    let two = UFP128::from_uint(TWO);
+
+    if stats.val_ether_sp > UFP128::zero() {
+        iW = stats.val_ether_sp / stats.val_total_sp;
+        jW = UFP128::from_uint(blood.credit) / stats.val_total_sp;
+    }
+    if let Some(addr) = maybe_addr {
+        global = false;
+        let key = storage.pledges.get(addr);
+        if key.try_read().is_none() {
+            // revert
+        } else {
+            let p = key.read();
+            let val_ether = price * UFP128::from_uint(p.ether) / UFP128::from_uint(ONE); 
+            let value = UFP128::from_uint(p.quid) + val_ether;
+
+            let mut delta_eth = UFP128::zero();
+            let mut delta_qd = UFP128::zero();
+            if value > UFP128::zero() {
+                if stats.val_ether_sp > UFP128::zero() {
+                    delta_eth = stats.val_ether_sp - val_ether;
+                }
+                if blood.credit > 0 {
+                    delta_qd = UFP128::from_uint(blood.credit - p.quid);
+                }
+                let delta_val = stats.val_total_sp - value;
+                
+                iW = delta_eth / delta_val;
+                jW = delta_qd / delta_val;
+            }            
+        }
+    }
+    let var = (two * iW * jW * ivol) + (iW * iW * ivol * ivol);
+    if var > UFP128::zero() {
+        let vol = var.sqrt(); // total volatility of the SolvencyPool
+        // % loss that total SP deposits would suffer in a stress event
+        let stress_pct = stress(false, vol, short);
+        let avg_pct = stress(true, vol, short);
+        
+        let mut stress_val = stats.val_total_sp;
+        let mut avg_val = stress_val;
+        
+        if !short {
+            stress_val *= one - stress_pct.underlying; 
+            avg_val *= one - avg_pct.underlying;
+            if global {
+                stats.long.stress_val = stress_val;
+                stats.long.avg_val = avg_val;
+            } 
+        } 
+        else {
+            stress_val *= one + stress_pct.underlying;
+            avg_val *= one + avg_pct.underlying;
+            if global {
+                stats.short.stress_val = stress_val;
+                stats.short.avg_val = avg_val;
+            } 
+        }
+        storage.stats.write(stats);
+        return stress_val;
+        
+    } else {
+        return UFP128::zero();
+    }
+}
+
+/**
+#[storage(read, write)] fn risk(&mut self, short: bool) {
+    let mvl_s: f64; // market value of liabilities in stressed markets 
+    let mva_s: f64; // market value of assets in stressed markets 
+    let mva_n = self.stats.val_total_sp; //market value of insurance assets in normal markets,
+    // includes the reserve which is implemented as an insurer, collateral is not an asset of the insurers
+    
+    let mut vol = self.get_vol() as f64; 
+    let val_near: f64;
+    if !short {
+        val_near = self.live.long.credit
+            .checked_mul(self.get_price()).expect(ERR_MUL) as f64;
+
+        let qd: f64 = self.live.long.debit as f64;
+        let mut pct: f64 = stress(false, vol, false);
+        
+        let stress_val = (1.0 - pct) * val_near;
+        let stress_loss = qd - stress_val;
+        
+        mva_s = stress_val; // self.stats.long.stress_val;
+        mvl_s = stress_loss; // self.stats.long.stress_loss;
+    } else {
+        val_near = self.live.short.debit
+            .checked_mul(self.get_price()).expect(ERR_MUL) as f64;
+        
+        let qd: f64 = self.live.short.credit as f64;
+        let mut pct: f64 = stress(false, vol, true);
+        
+        let stress_val = (1.0 + pct) * val_near;
+        let stress_loss = stress_val - qd;
+
+        mva_s = stress_val; // self.stats.short.stress_val;
+        mvl_s = stress_loss; // self.stats.short.stress_loss;
+    }    
+    let own_n = mva_n as f64; // own funds normal markets
+    let mut own_s = mva_s - mvl_s; // own funds stressed markets
+    if short && own_s > 0.0 {
+        own_s *= -1.0;   
+    }
+    // S.olvency C.apial R.equirement is the amount of... 
+    // deposited assets needed to survive a stress event
+    let scr = own_n - own_s;
+    assert!(scr > 0.0, "SCR can't be 0");
+    let solvency = own_n / scr; // represents capital adequacy to back $QD
+    if short {
+        let mut target = self.data_s.median;
+        if target == -1.0 {
+            target = 1.0;
+        }
+        // assume target = 1.5 or 150%
+        let mut scale = target / solvency;
+        if scale > 4.2 {
+            scale = 4.2;    
+        } else if scale < 0.042 {
+            scale = 0.042;
+        }
+        self.data_s.scale = scale;
+        self.data_s.solvency = solvency
+    } else {
+        let mut target = self.data_l.median;
+        if target == -1.0 {
+            target = 1.0;
+        }
+        let mut scale = target / solvency;
+        if scale > 4.2 {
+            scale = 4.2;    
+        } else if scale < 0.042 {
+            scale = 0.042;
+        }
+        self.data_l.scale = scale;
+        self.data_l.solvency = solvency;
+    }
+}
+*/
+
+/**
+  * The second act is called "The Turn". The magician takes the ordinary 
+  * something and makes it do something extraordinary. Now you're looking
+  * for the secret...but you won't find it, because of course you're not
+  * really looking...you don't really want to know, you wanna be fooled, but
+  * you wouldn't clap yet...because makin' somethin' disappear ain't enough  
+*/
 
 #[storage(read, write)] fn turn(amt: u64, short: bool, sender: Address) -> u64 {
     let mut least: u64 = 0;
@@ -870,6 +1031,7 @@ impl Quid for Contract
             let mut quid = ratio(crank.price, amt, ONE);            
             let min_qd = min(quid, blood.credit);
             let min_eth = ratio(ONE, min_qd, crank.price);
+            
             // storage.token.internal_withdraw(&env::current_account_id(), min); TODO
             blood.debit += min_eth;
             blood.credit -= min_qd;
@@ -938,7 +1100,8 @@ impl Quid for Contract
 }
 
 // allow snatching in both directions
-// so 
+// so debt from DP goes back to LP
+// but never surety 
 #[storage(read, write)] fn snatch(db: u64, surety: u64, short: bool) { 
     let crank = storage.crank.read();
     let mut live = storage.live.read();

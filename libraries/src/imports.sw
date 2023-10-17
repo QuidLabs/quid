@@ -60,6 +60,13 @@ pub struct PledgeStats {
     val_total_sp: UFP128, // total $ value of val_eth + $QD solvency deposit
 }
 
+/**
+ The first part is called "The Pledge". 
+ The magician shows you something ordinary: 
+ a deck of coins, a bird, or Johnny. You inspect it 
+ to see if it is indeed real, unaltered, normal. 
+ But of course...it probably isn't.
+*/
 pub struct Pledge { // each User pledges
     live: Pool, // surety in $QD or ETH
     // TODO to_be_paid gets incremented on every borrow ??
@@ -299,3 +306,52 @@ pub fn pricing(payoff: UFP128, scale: UFP128, val_crypto: UFP128, val_quid: UFP1
     }
     // rate *= calibrate; // TODO before returning
 }
+
+    /**
+    // Script must call it regularly, it drives stress testing,
+    // and re-pricing options for borrowers on account of this, 
+    // and SolvencyTarget as SP's weighted-median voting concedes
+    #[storage(read, write)] fn update() {
+        if !self.crank.done {
+            // let mut pledges = &mut self.pledges; // BUG inside loop throws 
+            // "cannot borrow `*self` as mutable more than once at a time"
+            let mut keys = &self.pledges.to_vec();
+            let len = self.pledges.len() as usize;
+            let start = self.crank.index.clone();
+            let left: usize = len - start;
+            let mut many = 42; // arbitrary number of Pledges to iterate at a time
+            // limited by maximum gas that can be burned in one transaction call
+            if 42 > left {    many = left;    }
+            let stop = start + many;
+            for idx in start..stop { 
+                let id = keys[idx].0.clone();
+                self.stress_pledge(id);
+                self.crank.index += 1;
+            }
+            if self.crank.index == len {
+                self.crank.index = 0;
+                self.crank.done = true;
+                self.crank.last = env::block_timestamp();
+            }  
+        } else { // the first time we call update in one cycle, done = true
+        // that means we need to calculate global values...that gives us 
+        // scale variable that is used for individual values 
+            let timestamp = env::block_timestamp();
+            let time_delta = timestamp - self.crank.last;
+            if time_delta >= EIGHT_HOURS {
+                let price = self.get_price();
+                self.stats.val_near_sp = self.blood.debit.checked_mul(price).expect(
+                    "Multiplication Overflow in `update`"
+                );
+                self.stats.val_total_sp = self.blood.credit
+                    .checked_add(self.stats.val_near_sp).expect(ERR_ADD);
+                sp_stress(None, false); // stress the long side of the SolvencyPool
+                sp_stress(None, true); // stress the short side of the SolvencyPool
+                risk(false); risk(true); // calculate solvency and scale factor 
+                self.crank.done = false;
+            } else {
+                env::panic(b"Too early to run an update, please wait"); 
+            }
+        }
+    }  
+    */
