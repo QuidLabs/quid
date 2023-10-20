@@ -11,5 +11,5 @@ abi Quid {
 
     // #[storage(read, write)] fn clap (who: Address); // liquidate
     
-    // #[storage(read, write)] fn update (); 
+    #[storage(read, write)] fn update (); 
 }

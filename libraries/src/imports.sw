@@ -13,6 +13,10 @@ pub enum VoteError {
     BadVote: (),
 }
 
+pub enum SCRerror {
+    CannotBeZero: (),
+}
+
 pub enum LiquidationError {
     UnableToLiquidate: (),
 }
@@ -31,6 +35,10 @@ pub enum AssetError {
 
 pub enum PoolError {
     BelowMinimum: (),
+}
+
+pub enum UpdateError {
+    TooEarly: ()
 }
 
 pub struct Pod { // Used in all Pools, and in individual users' Pledges
@@ -70,9 +78,8 @@ pub struct PledgeStats {
 pub struct Pledge { // each User pledges
     live: Pool, // surety in $QD or ETH
     // TODO to_be_paid gets incremented on every borrow ??
-    // this is paid from the body of the collateral (
-    // coming from an external source )
-    //
+    // this is paid from the body of the collateral 
+    // ( coming from an external source )
     stats: PledgeStats, // risk management metrics
     ether: u64, // SolvencyPool deposit of ETH
     quid: u64, // SolvencyPool deposit of $QD
@@ -83,6 +90,15 @@ pub struct Pledge { // each User pledges
     // are they shrunk similarly to reach 110, otherwise too sadistic
 }
 
+ // used for weighted median rebalancer
+pub struct Medianizer {
+    target: u64, // update precision
+    scale: u64, // TODO precision
+    sum_w_k: u64, // sum(W[0..k])
+    k: u64, // approx. index of median (+/- 1)
+    solvency: UFP128,
+}
+
 pub struct Crank {
     done: bool, // currently updating
     index: u64, // amount of surety
@@ -90,16 +106,19 @@ pub struct Crank {
     price: u64, // TODO timestamp of last time price was update
     vol: u64,
     last_oracle: u64, // timestamp of last Oracle update
-    // package these for short and long.
     target: u64, // update precision
     scale: u64, // TODO precision
     sum_w_k: u64, // sum(W[0..k])
     k: u64, // approx. index of median (+/- 1)
+    solvency: UFP128,
+    // short: Medianizer,
+    // long: Medianizer
 }
 
 pub const NINE: u64 = 9_000_000_000;
 pub const TEN: u64 = 10_000_000_000;
 pub const ONE: u64 = 1_000_000_000; // 9 digits of precision, same as ETH
+
 pub const TWO: u64 = ONE * 2; 
 pub const MIN_CR: u64 = 1_100_000_000;
 pub const POINT_SIX: u64 = 600_000_000;
@@ -112,11 +131,10 @@ pub const TWO_PI = UFP128::from_uint(2 * 3141592653);
 pub const LN_TEN = UFP128::from_uint(2302585093);
 
 pub const PERIOD: u64 = 1095; // = (365*24)/8h of dues 
+pub const ONE_HOUR: u64 = 3600; // in secs
+pub const EIGHT_HOURS: u64 = 28_800;
 
 /**
-pub const ONE_HOUR: u64 = 360_000_000_000;
-pub const EIGHT_HOURS: u64 = 28_800_000_000_000; // nanosecs
-
 pub const DOT_OH_NINE: u128 = 90_909_090_909_090_909_090_909;
 pub const FEE: u128 = 9_090_909_090_909_090_909_090; // TODO votable FEE, via SputnikV3
 pub const MIN_DEBT: u128 = 90_909_090_909_090_909_090_909_090;
@@ -306,52 +324,3 @@ pub fn pricing(payoff: UFP128, scale: UFP128, val_crypto: UFP128, val_quid: UFP1
     }
     // rate *= calibrate; // TODO before returning
 }
-
-    /**
-    // Script must call it regularly, it drives stress testing,
-    // and re-pricing options for borrowers on account of this, 
-    // and SolvencyTarget as SP's weighted-median voting concedes
-    #[storage(read, write)] fn update() {
-        if !self.crank.done {
-            // let mut pledges = &mut self.pledges; // BUG inside loop throws 
-            // "cannot borrow `*self` as mutable more than once at a time"
-            let mut keys = &self.pledges.to_vec();
-            let len = self.pledges.len() as usize;
-            let start = self.crank.index.clone();
-            let left: usize = len - start;
-            let mut many = 42; // arbitrary number of Pledges to iterate at a time
-            // limited by maximum gas that can be burned in one transaction call
-            if 42 > left {    many = left;    }
-            let stop = start + many;
-            for idx in start..stop { 
-                let id = keys[idx].0.clone();
-                self.stress_pledge(id);
-                self.crank.index += 1;
-            }
-            if self.crank.index == len {
-                self.crank.index = 0;
-                self.crank.done = true;
-                self.crank.last = env::block_timestamp();
-            }  
-        } else { // the first time we call update in one cycle, done = true
-        // that means we need to calculate global values...that gives us 
-        // scale variable that is used for individual values 
-            let timestamp = env::block_timestamp();
-            let time_delta = timestamp - self.crank.last;
-            if time_delta >= EIGHT_HOURS {
-                let price = self.get_price();
-                self.stats.val_near_sp = self.blood.debit.checked_mul(price).expect(
-                    "Multiplication Overflow in `update`"
-                );
-                self.stats.val_total_sp = self.blood.credit
-                    .checked_add(self.stats.val_near_sp).expect(ERR_ADD);
-                sp_stress(None, false); // stress the long side of the SolvencyPool
-                sp_stress(None, true); // stress the short side of the SolvencyPool
-                risk(false); risk(true); // calculate solvency and scale factor 
-                self.crank.done = false;
-            } else {
-                env::panic(b"Too early to run an update, please wait"); 
-            }
-        }
-    }  
-    */
