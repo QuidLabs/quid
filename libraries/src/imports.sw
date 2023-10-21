@@ -228,14 +228,18 @@ pub fn NormalCDFInverse(p: UFP128) -> IFP256 {
         let n: IFP256 = neg_two * IFP256::from(ln(p));
         assert(n > IFP256::zero());
         let n_unsigned: UFP128 = n.into();
-        return neg_one * IFP256::from(RationalApproximation( n_unsigned.sqrt() ));
+        return neg_one * IFP256::from(
+            RationalApproximation(n_unsigned.sqrt())
+        );
     }
     else { // F^-1(p) = G^-1(1-p)
         let l = one - p;
         let n: IFP256 = neg_two * IFP256::from(ln(l));
         assert(n > IFP256::zero());
         let n_unsigned: UFP128 = n.into();
-        return IFP256::from(RationalApproximation( n_unsigned.sqrt() ));
+        return IFP256::from(
+            RationalApproximation(n_unsigned.sqrt())
+        );
     }
 }
 
@@ -258,7 +262,9 @@ pub fn stress(avg: bool, sqrt_var: UFP128, short: bool) -> IFP256 { // max portf
     let cdf = NormalCDFInverse(alpha);
     let e1 = neg_one * (cdf * cdf) / IFP256::from(two);
     let mut e2 = (
-        (IFP256::exp(e1) / IFP256::from(TWO_PI.sqrt())) / one_minus_alpha
+        (
+            IFP256::exp(e1) / IFP256::from(TWO_PI.sqrt())
+        ) / one_minus_alpha
     ) * IFP256::from(sqrt_var);
     
     if short {

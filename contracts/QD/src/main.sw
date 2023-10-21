@@ -398,7 +398,7 @@ storage {
     p.stats.short.val_ether = price * UFP128::from_uint(p.live.short.debit) / UFP128::from_uint(ONE); 
     
     let mut val_ether = p.stats.short.val_ether;
-    let mut qd = UFP128::from_uint(p.live.short.credit); // surety
+    let mut qd = UFP128::from_uint(p.live.short.credit); // collat
 
     if val_ether > UFP128::zero() { // $ value of Pledge ETH debt
         short_touched = true;
@@ -488,10 +488,10 @@ storage {
         let avg_val = (one - pct) * eth;
         
         pct = stress(false, vol, false);
-        // model suggested $ value of surety in high stress
+        // model suggested $ value of collat in high stress
         let stress_val = (one - pct) * eth;
         
-        // model suggested $ amount of insufficient surety 
+        // model suggested $ amount of insufficient collat 
         let mut stress_loss = QD - stress_val;
         if stress_loss < IFP256::zero() {   
             stress_loss = IFP256::zero();  
@@ -572,7 +572,7 @@ impl Quid for Contract
         
         if short { 
             let eth = pledge.live.short.debit;
-            // this is how much QD surety we are returning to SP from LP
+            // this is how much QD collat we are returning to SP from LP
             let qd = ratio(crank.price, eth, ONE); 
             // TODO instead of decrementing from DP
             // write how much is being debited against DP
@@ -580,7 +580,7 @@ impl Quid for Contract
             // as such, while payments are being made out 
             // of DP into SP...maintain invariant that 
             // when SP withdraws 
-            redeem(qd); // assume this QD comes from surety,
+            redeem(qd); // assume this QD comes from collat,
             // which we actually burn off in the next function
             // TODO 
             // possible bug ETH can leave SP
@@ -590,7 +590,7 @@ impl Quid for Contract
             churn(eth, true, sender); // reduce ETH debt
             // send ETH back to SP since it was borrowed from
             // there in the first place...but since we redeemed
-            // the QD that was surety, we were able to clear some
+            // the QD that was collat, we were able to clear some
             // long liquidatons along the way, destroying debt
             // blood.debit += 
         } else { // TODO all the same logic as above applies in shrink
@@ -618,7 +618,7 @@ impl Quid for Contract
         let mut pledge = fetch_pledge(sender, true, true);
 
         if msg_asset_id() == contract_id().into() { // QD
-            if live { // adding surety to borrowing
+            if live { // adding collat to borrowing
                 let mut pool = storage.live.read(); 
                 if long { 
                     if pledge.live.long.debit > 0 { // try pay down debt
@@ -659,7 +659,7 @@ impl Quid for Contract
                     }
                     if amt > 0 { // TODO
                         // invert remaining ETH
-                        // deposit QD surety
+                        // deposit QD collat
                     }   
                 }
             }
@@ -748,6 +748,7 @@ impl Quid for Contract
     // A external maintenance script must call this regularly, 
     // in order to drive stress testing, re-pricing options for borrowers on account of this, 
     // and SolvencyTarget as SP's weighted-median voting concedes
+    
     #[storage(read, write)] fn update() {
         let mut crank = storage.crank.read();
         let mut stats = storage.stats.read();
@@ -756,15 +757,15 @@ impl Quid for Contract
             let len = storage.addresses.len();
             let mut start = crank.index;
             let left = len - start;
-            let mut many = 42; // arbitrary number of Pledges to iterate at a time
+            let mut many = 11; // arbitrary number of Pledges to iterate at a time
             // limited by maximum gas that can be burned in one transaction call
-            if 42 > left {   
+            if 11 > left {   
                  many = left;    
             }
             let stop = start + many;
             while start < stop { 
                 let id = storage.addresses.get(start).unwrap().read();
-                stress_pledge(id);
+                // stress_pledge(id);
                 crank.index += 1;
                 start += 1;
             }
@@ -786,11 +787,12 @@ impl Quid for Contract
                 );
                 stats.val_total_sp = UFP128::from_uint(blood.credit) + stats.val_ether_sp;
                 storage.stats.write(stats);
-                sp_stress(None, false); // stress the long side of the SolvencyPool
-                sp_stress(None, true); // stress the short side of the SolvencyPool
-                risk(false); risk(true); // calculate solvency and scale factor 
+                // sp_stress(None, false); // stress the long side of the SolvencyPool
+                // sp_stress(None, true); // stress the short side of the SolvencyPool
+                // risk(false); risk(true); // calculate solvency and scale factor 
                 crank.done = false;
-            } else {
+            } 
+            else {
                 require(true, UpdateError::TooEarly); 
             }
         }
@@ -1003,6 +1005,7 @@ impl Quid for Contract
     return least; // how much was redeemed, used for total tallying in turnFrom 
 }
 
+
 #[storage(read, write)] fn redeem(quid: u64) {
     let mut bought: u64 = 0; // ETH collateral to be released from deepPool's long portion
     let mut redempt: u64 = 0; // amount of QD debt being cleared from the DP
@@ -1182,19 +1185,19 @@ impl Quid for Contract
 
 // allow snatching in both directions
 // so debt from DP goes back to LP
-// but never surety 
-#[storage(read, write)] fn snatch(db: u64, surety: u64, short: bool) { 
+// but never collat 
+#[storage(read, write)] fn snatch(db: u64, collat: u64, short: bool) { 
     let crank = storage.crank.read();
     let mut live = storage.live.read();
     let mut deep = storage.deep.read();
     require(crank.price > 0, PriceError::NotInitialized);
     if short { // we are moving crypto debt and QD collateral from LivePool to DP
-        live.short.credit -= surety; // surety is in QD
-        deep.short.credit += surety;
+        live.short.credit -= collat; // collat is in QD
+        deep.short.credit += collat;
         live.short.debit -= db; // db is in ETH
         
         let val_debt = ratio(crank.price, db, ONE); // get db in QD
-        let delta = val_debt - surety; 
+        let delta = val_debt - collat; 
         // let delta: I8 = I8::from(db - val_coll);
         assert(delta > 0); // borrower was not supposed to be liquidated
         
@@ -1206,11 +1209,11 @@ impl Quid for Contract
         // clearing delta_debt against 11% tax from sale
     } 
     else { // we are moving QD debt and crypto collateral
-        live.long.credit -= surety;
-        deep.long.credit += surety;
+        live.long.credit -= collat;
+        deep.long.credit += collat;
         live.long.debit -= db;
 
-        let val_coll = ratio(crank.price, surety, ONE);
+        let val_coll = ratio(crank.price, collat, ONE);
 
         let delta: I64 = I64::from(db - val_coll);
         assert(delta > I64::from(0)); // borrower was not supposed to be liquidated
@@ -1398,7 +1401,7 @@ impl Quid for Contract
     // if pledge has ETH in the SP it should stay there b/c it's growing
     // as we know this is what put the short in jeopardy of liquidation
     let final_qd = ratio(MIN_CR, val_debt, ONE); // how much QD we need
-    // to be in surety for satisfying the minimum loan collateralisation 
+    // to be in collat for satisfying the minimum loan collateralisation 
 
     let mut delta = final_qd - credit; // $ value to add for credit 
     require(delta > 0, LiquidationError::UnableToLiquidate);
