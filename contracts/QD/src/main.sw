@@ -71,28 +71,29 @@ storage {
         index: 0, last_update: 0, price: ONE, // eth price in usd / qd per usd
         vol: ONE, last_oracle: 0, // timestamp of last oracle update, for assert
         // TODO in the future aggregate these into one? 
-        // long: {
-        //     target: 137, // https://science.howstuffworks.com/dictionary/physics-terms/why-is-137-most-magical-number.htm
-        //     scale: ONE,
-        //     sum_w_k: 0, k: 0,
-        //     solvency: UFP128::zero()
-        // }
-        // short: {
-        //     target: 137, 
-        //     scale: ONE,
-        //     sum_w_k: 0, k: 0, 
-        //     solvency: UFP128::zero()
-        // }
-        target: 137, 
-        scale: ONE,
-        sum_w_k: 0, k: 0, 
-        solvency: UFP128::zero()
+        long: Medianizer {
+            target: 137, // https://science.howstuffworks.com/dictionary/physics-terms/why-is-137-most-magical-number.htm
+            scale: ONE,
+            sum_w_k: 0, k: 0,
+            solvency: UFP128::zero(),
+        },
+        short: Medianizer {
+            target: 137, scale: ONE,
+            sum_w_k: 0, k: 0, 
+            solvency: UFP128::zero(),
+        }
     },
-    // the following used for weighted median voting
-    target_weights: StorageVec<u64> = StorageVec {}, 
-    // TODO make copy for short 
+    long_weights: StorageVec<u64> = StorageVec {},
+    short_weights: StorageVec<u64> = StorageVec {},
 }
 
+/**  This function is very dangerous
+It's essentially a flash loan that simulates 
+minting QD against a deposit of ETH, selling QD 
+for more ETH (against internal protocol liquidity)
+to re-deposit and grow a leveraged position...
+I don't remember if it's hardcoded for 10x leverage
+*/
 /**
 #[storage(read, write)] fn valve(id: Address, short: bool, new_debt_in_qd: u64, _pledge: Pod) -> Pod {
     let mut pledge = _pledge;
@@ -213,29 +214,45 @@ storage {
  *  sum(Weights[0:k]) > sum(Weights) / 2
 */
 
-#[storage(read, write)] fn weights_init() {
+#[storage(read, write)] fn weights_init(short: bool) {
     let mut i = 0; 
     // let mut n = 125; 
-    while i < 21 { // 21 elements total
-        storage.target_weights.push(0);
-        // n += 5;
-        i += 1;
+    if short {
+        if storage.short_weights.len() != 20 { // only executes once
+            while i < 21 { // 21 elements total
+                storage.short_weights.push(0);
+                // n += 5;
+                i += 1;
+            }
+        }
+    } else {
+        if storage.long_weights.len() != 20 { // only executes once
+            while i < 21 { // 21 elements total
+                storage.long_weights.push(0);
+                // n += 5;
+                i += 1;
+            }
+        }
     }
     // assert(n == 225)
 }
 
-// TODO work with crank.long and crank.short for respective votes
 #[storage(read, write)] fn rebalance(new_stake: u64, new_vote: u64, 
-                                     old_stake: u64, old_vote: u64) { // TODO long or short
-    
+                                     old_stake: u64, old_vote: u64,
+                                     short: bool) { 
+
     require(new_vote >= 125 && new_vote <= 225 
     && new_vote % 5 == 0, VoteError::BadVote);
-    
-    if storage.target_weights.len() != 20 { // only executes once
-        weights_init();
-    }
     let mut crank = storage.crank.read();
-    let mut median = crank.target;
+
+    weights_init(short);
+    let mut weights = storage.long_weights;
+    let mut data = crank.long;
+    if short {
+        weights = storage.short_weights;
+        data = crank.short;
+    }
+    let mut median = data.target;
 
     let stats = storage.stats.read();
     let total = stats.val_total_sp.value.as_u64().unwrap();
@@ -243,47 +260,57 @@ storage {
 
     if old_vote != 0 && old_stake != 0 {
         let old_index = (old_vote - 125) / 5;
-        storage.target_weights.set(old_index,
-            storage.target_weights.get(old_index).unwrap().read() - old_stake
+        weights.set(old_index,
+            weights.get(old_index).unwrap().read() - old_stake
         );
         if old_vote <= median {   
-            crank.sum_w_k -= old_stake;
+            data.sum_w_k -= old_stake;
         }
     }
     let index = (new_vote - 125) / 5;
     if new_stake != 0 {
-         storage.target_weights.set(index,
-            storage.target_weights.get(index).unwrap().read() + new_stake
+         weights.set(index,
+            weights.get(index).unwrap().read() + new_stake
         );
     }
     if new_vote <= median {
-        crank.sum_w_k += new_stake;
+        data.sum_w_k += new_stake;
     }		  
     if total != 0 && mid_stake != 0 {
         if median > new_vote {
-            while crank.k >= 1 && ((crank.sum_w_k - storage.target_weights.get(crank.k).unwrap().read()) >= mid_stake) {
-                crank.sum_w_k -= storage.target_weights.get(crank.k).unwrap().read();
-                crank.k -= 1;			
+            while data.k >= 1 && (
+                (data.sum_w_k - weights.get(data.k).unwrap().read()) >= mid_stake
+            ) {
+                data.sum_w_k -= weights.get(data.k).unwrap().read();
+                data.k -= 1;			
             }
         } else {
-            while crank.sum_w_k < mid_stake {
-                crank.k += 1;
-                crank.sum_w_k += storage.target_weights.get(crank.k).unwrap().read();
+            while data.sum_w_k < mid_stake {
+                data.k += 1;
+                data.sum_w_k += weights.get(data.k).unwrap().read();
             }
         }
-        median = (crank.k * 5) + 125; // convert index to target
+        median = (data.k * 5) + 125; // convert index to target
         
         // TODO can sometimes be a number not divisible by 5, probably fine
-        if crank.sum_w_k == mid_stake { 
-            let intermedian = median + ((crank.k + 1) * 5) + 125;
+        if data.sum_w_k == mid_stake { 
+            let intermedian = median + ((data.k + 1) * 5) + 125;
             median = intermedian / 2;
         }
-        crank.target = median;
+        data.target = median;
     }  else {
-        crank.sum_w_k = 0;
+        data.sum_w_k = 0;
+    }
+    if short {
+        //storage.short_weights.store_vec(weights);
+        crank.short = data;   
+    } else {
+        //storage.long_weights.store_vec(weights);
+        crank.long = data;
     }
     storage.crank.write(crank);
 }
+
 
 #[storage(read, write)] fn fetch_pledge(owner: Address, create: bool, sync: bool) -> Pledge {
     let key = storage.pledges.get(owner);
@@ -407,7 +434,7 @@ storage {
         // iW /= eth; // 1.0 for now...TODO later each crypto will carry a different weight in the portfolio, i.e. divide each iW by total $val 
         // let var = (iW * iW) * (vol * vol); // aggregate for all Pledge's crypto debt
         // let mut ivol = var.sqrt(); // portfolio volatility of the Pledge's borrowed crypto
-        let scale = UFP128::from_uint(crank.scale);
+        let scale = UFP128::from_uint(crank.short.scale);
         let QD = IFP256::from(qd);
 
         // $ value of borrowed crypto in upward price shocks of avg & bad magnitudes
@@ -479,7 +506,7 @@ storage {
         // let mut vol = var.sqrt(); // total portfolio volatility of the Pledge's crypto collateral
         long_touched = true;
 
-        let scale = UFP128::from_uint(crank.scale); // TODO crank.long.scale
+        let scale = UFP128::from_uint(crank.long.scale); 
         let eth = IFP256::from(val_ether);
         let QD = IFP256::from(qd);
 
@@ -745,10 +772,11 @@ impl Quid for Contract
         storage.pledges.insert(account, pledge); 
     }
     
+    // 500000000 is the max gas a tx call can accept
     // A external maintenance script must call this regularly, 
-    // in order to drive stress testing, re-pricing options for borrowers on account of this, 
-    // and SolvencyTarget as SP's weighted-median voting concedes
-    
+    // in order to drive stress testing, re-pricing options for 
+    // borrowers on account of this, and SolvencyTarget as SP's 
+    // weighted-median voting concedes the target solvency 
     #[storage(read, write)] fn update() {
         let mut crank = storage.crank.read();
         let mut stats = storage.stats.read();
@@ -941,24 +969,19 @@ impl Quid for Contract
     let solvency = own_n / scr; // represents capital adequacy to back $QD
     // TODO uncomment and replace short target
     if short {
-        let mut target = crank.target;
+        let mut target = crank.short.target;
         let mut scale = IFP256::from_uint(target) / solvency;
  
-        crank.scale = scale.underlying.value.as_u64().unwrap();
-        crank.solvency = solvency.underlying;
+        crank.short.scale = scale.underlying.value.as_u64().unwrap();
+        crank.short.solvency = solvency.underlying;
     } 
-    /**
     else {
-        let mut target = self.data_l.median;
-        let mut scale = target / solvency;
-        if scale > 4.2 {
-            scale = 4.2;    
-        } else if scale < 0.042 {
-            scale = 0.042;
-        }
-        self.data_l.scale = scale;
-        self.data_l.solvency = solvency;
-    } */
+        let mut target = crank.long.target;
+        let mut scale = IFP256::from_uint(target) / solvency;
+        
+        crank.long.scale = scale.underlying.value.as_u64().unwrap();
+        crank.long.solvency = solvency.underlying;
+    }
     storage.crank.write(crank);
     // storage.stats.write(stats);
 }

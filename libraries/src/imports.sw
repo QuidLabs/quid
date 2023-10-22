@@ -3,7 +3,7 @@ library;
 
 use std::{
     auth::*,
-    u128::U128
+    u128::U128,
 };
 
 use fixed_point::ufp128::UFP128;
@@ -42,13 +42,13 @@ pub enum UpdateError {
 }
 
 pub struct Pod { // Used in all Pools, and in individual users' Pledges
-    credit: u64, // amount of QD surety in shorts, ETH in longs
+    credit: u64, // amount of QD collat in shorts, ETH in longs
     debit: u64 // amount of QDebt in longs, ETH debt in shorts
 } 
 
 pub struct Pool { // Pools have a long Pod and a short Pod
-    long: Pod, // debt and surety of QD borrowers
-    short: Pod, // debt and surety of ETH borrowers
+    long: Pod, // debt and collat of QD borrowers
+    short: Pod, // debt and collat of ETH borrowers
 } 
 
 pub struct Stats {
@@ -76,7 +76,7 @@ pub struct PledgeStats {
  But of course...it probably isn't.
 */
 pub struct Pledge { // each User pledges
-    live: Pool, // surety in $QD or ETH
+    live: Pool, // collat in $QD or ETH
     // TODO to_be_paid gets incremented on every borrow ??
     // this is paid from the body of the collateral 
     // ( coming from an external source )
@@ -96,23 +96,18 @@ pub struct Medianizer {
     scale: u64, // TODO precision
     sum_w_k: u64, // sum(W[0..k])
     k: u64, // approx. index of median (+/- 1)
-    solvency: UFP128,
+    solvency: UFP128
 }
 
 pub struct Crank {
     done: bool, // currently updating
-    index: u64, // amount of surety
+    index: u64, // amount of collat
     last_update: u64, // timestamp of last time Crank was updated
     price: u64, // TODO timestamp of last time price was update
     vol: u64,
     last_oracle: u64, // timestamp of last Oracle update
-    target: u64, // update precision
-    scale: u64, // TODO precision
-    sum_w_k: u64, // sum(W[0..k])
-    k: u64, // approx. index of median (+/- 1)
-    solvency: UFP128,
-    // short: Medianizer,
-    // long: Medianizer
+    short: Medianizer,
+    long: Medianizer
 }
 
 pub const NINE: u64 = 9_000_000_000;
