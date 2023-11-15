@@ -6,8 +6,8 @@ use std::{
     u128::U128,
 };
 
-use fixed_point::ufp128::UFP128;
-use fixed_point::ifp256::IFP256;
+// use fixed_point::ufp128::UFP128;
+// use fixed_point::ifp256::IFP256;
 
 pub enum VoteError {
     BadVote: (),
@@ -38,7 +38,8 @@ pub enum PoolError {
 }
 
 pub enum UpdateError {
-    TooEarly: ()
+    TooEarly: (),
+    Deadlock: ()
 }
 
 pub struct Pod { // Used in all Pools, and in individual users' Pledges
@@ -52,20 +53,31 @@ pub struct Pool { // Pools have a long Pod and a short Pod
 } 
 
 pub struct Stats {
-    val_ether: UFP128, // $ value of ETH assets
-    stress_val: UFP128, //  $ value of the Solvency Pool in bad market stress, tail risk
-    avg_val: UFP128, // $ value of the Solvency Pool in average stress, 25-50 % price shock
-    stress_loss: UFP128, // % loss that Solvency pool would suffer in a bad stress event
-    avg_loss: UFP128, // % loss that Solvency pool would suffer in an avg stress event
-    premiums: UFP128, // $ amount of premiums borrower would pay in a year 
-    rate: UFP128, // annualized rate borrowers pay in periodic premiums 
+    // TODO uncomment after fixed point compilation error is fixed
+    // val_ether: UFP128, // $ value of ETH assets
+    // stress_val: UFP128, //  $ value of the Solvency Pool in bad market stress, tail risk
+    // avg_val: UFP128, // $ value of the Solvency Pool in average stress, 25-50 % price shock
+    // stress_loss: UFP128, // % loss that Solvency pool would suffer in a bad stress event
+    // avg_loss: UFP128, // % loss that Solvency pool would suffer in an avg stress event
+    // premiums: UFP128, // $ amount of premiums borrower would pay in a year 
+    // rate: UFP128, // annualized rate borrowers pay in periodic premiums 
+    val_ether: u64,
+    stress_val: u64,
+    avg_val: u64,
+    stress_loss: u64,
+    avg_loss: u64,
+    premiums: u64,
+    rate: u64
 }
 
 pub struct PledgeStats {
     long: Stats,
     short: Stats,
-    val_ether_sp: UFP128, // $ value of the ETH solvency deposit
-    val_total_sp: UFP128, // total $ value of val_eth + $QD solvency deposit
+    // TODO uncomment after fixed point compilation error is fixed
+    // val_ether_sp: UFP128, // $ value of the ETH solvency deposit
+    // val_total_sp: UFP128, // total $ value of val_eth + $QD solvency deposit
+    val_ether_sp: u64,
+    val_total_sp: u64
 }
 
 /**
@@ -77,33 +89,47 @@ pub struct PledgeStats {
 */
 pub struct Pledge { // each User pledges
     live: Pool, // collat in $QD or ETH
+    
+    // TODO save original pledge balance,
+    // do not keep updating it until after 
+    // the balance has been withdrawn fully
+    
     // TODO to_be_paid gets incremented on every borrow ??
     // this is paid from the body of the collateral 
     // ( coming from an external source )
     stats: PledgeStats, // risk management metrics
     ether: u64, // SolvencyPool deposit of ETH
     quid: u64, // SolvencyPool deposit of $QD
-    index: u64,
-    // last_voted: u64, // TODO do we need to save the vote itself
-    // target: u64, // CR to keep, must be above 110, if above, then
-    // pledge automatically shrunk to payoff distressed CRs, only then
-    // are they shrunk similarly to reach 110, otherwise too sadistic
+    
+    // index_long: u64, // TODO should be tuple, first arg is primary index according to significant figures, second is according to CR
+    // index_short: u64, // TODO should be tuple, first arg is primary index according to significant figures, second is according to CR
+    // last_voted: u64, // timestamp
+    
+    // TODO do we need to save the vote for target itself?
+    // if yes, this...must be tuple...
+    // index 0 for sh0rt and 1 for 1ong
+    // target_vote: u64, 
+    
+    // TODO optional feature
+    // target_CR: u64, // CR to keep above, must be above 110; 
+    // if above, then pledge automatically take more leverage
 }
 
- // used for weighted median rebalancer
+// used for weighted median rebalancer
 pub struct Medianizer {
+    done: bool, index: u64, // used for updating pledges 
     target: u64, // update precision
     scale: u64, // TODO precision
     sum_w_k: u64, // sum(W[0..k])
     k: u64, // approx. index of median (+/- 1)
-    solvency: UFP128
+    // TODO uncomment after fixed point compilation error is fixed
+    // solvency: UFP128,
+    solvency: u64
 }
 
 pub struct Crank {
-    done: bool, // currently updating
-    index: u64, // amount of collat
     last_update: u64, // timestamp of last time Crank was updated
-    price: u64, // TODO timestamp of last time price was update
+    price: u64, // timestamp of last time price was update
     vol: u64,
     last_oracle: u64, // timestamp of last Oracle update
     short: Medianizer,
@@ -112,18 +138,19 @@ pub struct Crank {
 
 pub const NINE: u64 = 9_000_000_000;
 pub const TEN: u64 = 10_000_000_000;
+pub const CDF: u64 = 1_281_551_565;
 pub const ONE: u64 = 1_000_000_000; // 9 digits of precision, same as ETH
 
 pub const TWO: u64 = ONE * 2; 
 pub const MIN_CR: u64 = 1_100_000_000;
 pub const POINT_SIX: u64 = 600_000_000;
 
-pub const MIN_PER_CENT = UFP128::from_uint(42_000_000);
-pub const MAX_PER_CENT = UFP128::from_uint(333_000_000);
+// pub const MIN_PER_CENT = UFP128::from_uint(42_000_000);
+// pub const MAX_PER_CENT = UFP128::from_uint(333_000_000);
 
-pub const PI = UFP128::from_uint(3141592653);
-pub const TWO_PI = UFP128::from_uint(2 * 3141592653);
-pub const LN_TEN = UFP128::from_uint(2302585093);
+// pub const PI = UFP128::from_uint(3141592653);
+// pub const TWO_PI = UFP128::from_uint(2 * 3141592653);
+// pub const LN_TEN = UFP128::from_uint(2302585093);
 
 pub const PERIOD: u64 = 1095; // = (365*24)/8h of dues 
 pub const ONE_HOUR: u64 = 3600; // in secs
@@ -131,7 +158,7 @@ pub const EIGHT_HOURS: u64 = 28_800;
 
 /**
 pub const DOT_OH_NINE: u128 = 90_909_090_909_090_909_090_909;
-pub const FEE: u128 = 9_090_909_090_909_090_909_090; // TODO votable FEE, via SputnikV3
+pub const FEE: u128 = 9_090_909_090_909_090_909_090; // TODO votable FEE
 pub const MIN_DEBT: u128 = 90_909_090_909_090_909_090_909_090;
 */
 
@@ -140,7 +167,7 @@ pub fn get_msg_sender_address_or_panic() -> Address {
     if let Identity::Address(address) = sender.unwrap() {
        address
     } else {
-       revert(420);
+       revert(42);
     }
 }
 
@@ -182,6 +209,8 @@ pub fn calc_cr(_price: u64, _surety: u64, _debt: u64, _short: bool) -> u64 {
     return 0; // this is normal, means no leverage
 }
 
+// TODO uncomment after fixed point compilation error is fixed
+/**
 // https://math.stackexchange.com/questions/2621005/
 // The absolute value of the error should be less than 4.5 e-4.
 pub fn RationalApproximation(t: UFP128) -> UFP128 {  
@@ -251,11 +280,13 @@ pub fn stress(avg: bool, sqrt_var: UFP128, short: bool) -> IFP256 { // max portf
     
     let mut alpha = nine / ten; // 10% of the worst case scenarios
     let one_minus_alpha = IFP256::from(one - alpha);
-    if avg {
-        alpha = one / two; // 50% of the avg case scenarios
-    }
-    let cdf = NormalCDFInverse(alpha);
-    let e1 = neg_one * (cdf * cdf) / IFP256::from(two);
+    // if avg {
+    //     alpha = one / two; // 50% of the avg case scenarios
+    // }
+    // let cdf = NormalCDFInverse(alpha); 
+    // TODO this is hardcoded for efficiency
+    let cdf = IFP256::from(UFP128::from_uint(1_281_551_565));
+    let e1 = neg_one * (cdf * cdf) / IFP256::from(two); // TODO hardcode
     let mut e2 = (
         (
             IFP256::exp(e1) / IFP256::from(TWO_PI.sqrt())
@@ -325,3 +356,4 @@ pub fn pricing(payoff: UFP128, scale: UFP128, val_crypto: UFP128, val_quid: UFP1
     }
     // rate *= calibrate; // TODO before returning
 }
+*/

@@ -5,5 +5,5 @@ license = "BSL 1.1"
 name = "libraries"
 
 [dependencies]
-signed_integers = { git = "https://github.com/fuellabs/sway-libs", branch = "master" }
-fixed_point = { git = "https://github.com/fuellabs/sway-libs", branch = "master" }
+# signed_integers = { git = "https://github.com/fuellabs/sway-libs", branch = "master" }
+# fixed_point = { git = "https://github.com/fuellabs/sway-libs", branch = "master" }

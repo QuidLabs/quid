@@ -21,73 +21,109 @@ use std::{
         BASE_ASSET_ID,
         ZERO_B256
     },
-    token::transfer,
+    token::{
+        transfer,
+        mint
+    },
     storage::storage_vec::*,
 };
 
-use signed_integers::i64::I64;
-use fixed_point::ufp128::UFP128;
-use fixed_point::ifp256::IFP256;
+// use signed_integers::i64::I64;
+// use fixed_point::ufp128::UFP128;
+// use fixed_point::ifp256::IFP256;
 
-storage {
-    addresses: StorageVec<Address> = StorageVec {}, // store addresses once
+storage { // live deeply, brooder
     pledges: StorageMap<Address, Pledge> = StorageMap {},
-    
-    sorted_shorts: StorageVec<u64> = StorageVec {}, // instead of twice here
-    sorted_longs: StorageVec<u64> = StorageVec {}, // and here...u64 is less space
-    // TODO map storing votes by address
-
+    addresses: StorageVec<Address> = StorageVec {}, // store all pledge addresses
+    votes: StorageMap<Address, (u64, u64)> = StorageMap {}, // short then long
     stats: PledgeStats = PledgeStats { // global stats
-        long: Stats { val_ether: UFP128::zero(), 
-            stress_val: UFP128::zero(), avg_val: UFP128::zero(),
-            stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
-            premiums: UFP128::zero(), rate: UFP128::zero(),
+        // TODO uncomment after fixed point compilation error is fixed
+        // long: Stats { val_ether: UFP128::zero(), 
+        //     stress_val: UFP128::zero(), avg_val: UFP128::zero(),
+        //     stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
+        //     premiums: UFP128::zero(), rate: UFP128::zero(),
+        // }, 
+        // short: Stats { val_ether: UFP128::zero(), 
+        //     stress_val: UFP128::zero(), avg_val: UFP128::zero(),
+        //     stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
+        //     premiums: UFP128::zero(), rate: UFP128::zero(),
+        // }, 
+        // val_ether_sp: UFP128::zero(), 
+        // val_total_sp: UFP128::zero(),
+        long: Stats { val_ether: 0, 
+            stress_val: 0, avg_val: 0,
+            stress_loss: 0, avg_loss: 0,
+            premiums: 0, rate: 0,
         }, 
-        short: Stats { val_ether: UFP128::zero(), 
-            stress_val: UFP128::zero(), avg_val: UFP128::zero(),
-            stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
-            premiums: UFP128::zero(), rate: UFP128::zero(),
+        short: Stats { val_ether: 0, 
+            stress_val: 0, avg_val: 0,
+            stress_loss: 0, avg_loss: 0,
+            premiums: 0, rate: 0,
         }, 
-        val_ether_sp: UFP128::zero(), 
-        val_total_sp: UFP128::zero(),
+        val_ether_sp: 0, 
+        val_total_sp: 0,
     },
     live: Pool = Pool { // Active borrower assets
         long: Pod { credit: 0, debit: 0, }, // ETH, QD
         short: Pod { credit: 0, debit: 0, }, // QD, ETH
+        // negative balance represents debt after liquidation
+        // so now original collateral, which was returned after
+        // liquidation continues to be charged unless the debt
+        // is relinquished, or sold to a new owner. relinquishing
+        // can be forced if there's not enough for SP withdrawals
     },
     deep: Pool = Pool { // Defaulted borrower assets
         long: Pod { credit: 0, debit: 0, }, // QD, ETH
         short: Pod { credit: 0, debit: 0, }, // ETH, QD
-    },
-    // TODO make it pool instead, long is in SP
-    // short is in LP, because Sinners bring
+    }, 
+    
+    // negatively charged QD
     // external liquidity in to pay for APR.
     // they also bear losses first from DP...
-    blood: Pod = Pod { // Solvency Pool deposits 
-        credit: 0, // QD
+    brood: Pod = Pod { // Solvency Pool deposits 
+        // TODO this starting value should be 0
+        // and deposit takes QD that has been 
+        // bridged from ERC20 on L1 to Fuel
+        // and the same for Ether (gas token)
+        credit: 0, // QD 
         debit: 0 // ETH
-    },
-    crank: Crank = Crank { done: true, // used for updating pledges 
-        index: 0, last_update: 0, price: ONE, // eth price in usd / qd per usd
+        // long: Pod, { credit: 0, debit: 0 } // QD, ETH in SP
+        // short: Pod, { credit: 0, debit: 0} // QD, ETH in LP
+    }, 
+    crank: Crank = Crank { 
+        last_update: 0, price: ONE, // eth price in usd / qd per usd
         vol: ONE, last_oracle: 0, // timestamp of last oracle update, for assert
         // TODO in the future aggregate these into one? 
         long: Medianizer {
+            done: true, index: 0, // used for updating pledges 
             target: 137, // https://science.howstuffworks.com/dictionary/physics-terms/why-is-137-most-magical-number.htm
             scale: ONE,
             sum_w_k: 0, k: 0,
-            solvency: UFP128::zero(),
+            // solvency: UFP128::zero(),
+            solvency: 0,
         },
         short: Medianizer {
+            done: true, index: 0, // used for updating pledges 
             target: 137, scale: ONE,
             sum_w_k: 0, k: 0, 
-            solvency: UFP128::zero(),
+            // solvency: UFP128::zero(),
+            solvency: 0,
         }
     },
+    // TODO
+    // this should be a vector of vectors 
+    // length is deterministic, can't number of digits of exceed max debt
+    // index 0 represents 1 significant figure, etc
+    // the entry at any index is a vector of addresses
+    // that are sorted by CR. 
+    sorted_longs: StorageVec<Address> = StorageVec {}, 
     long_weights: StorageVec<u64> = StorageVec {},
     short_weights: StorageVec<u64> = StorageVec {},
+    sorted_shorts: StorageVec<Address> = StorageVec {},
 }
 
-/**  This function is very dangerous
+// TODO is this even necessary? Why simulate at all? 
+/**  This function is shamelessly dangerous 
 It's essentially a flash loan that simulates 
 minting QD against a deposit of ETH, selling QD 
 for more ETH (against internal protocol liquidity)
@@ -205,15 +241,6 @@ I don't remember if it's hardcoded for 10x leverage
 }
 */
 
-/**  Weighted Median Algorithm for Solvency Target Voting
- *  Find value of k in range(1, len(Weights)) such that 
- *  sum(Weights[0:k]) = sum(Weights[k:len(Weights)+1])
- *  = sum(Weights) / 2
- *  If there is no such value of k, there must be a value of k 
- *  in the same range range(1, len(Weights)) such that 
- *  sum(Weights[0:k]) > sum(Weights) / 2
-*/
-
 #[storage(read, write)] fn weights_init(short: bool) {
     let mut i = 0; 
     // let mut n = 125; 
@@ -237,6 +264,17 @@ I don't remember if it's hardcoded for 10x leverage
     // assert(n == 225)
 }
 
+/**  Weighted Median Algorithm for Solvency Target Voting
+ *  Find value of k in range(1, len(Weights)) such that 
+ *  sum(Weights[0:k]) = sum(Weights[k:len(Weights)+1])
+ *  = sum(Weights) / 2
+ *  If there is no such value of k, there must be a value of k 
+ *  in the same range range(1, len(Weights)) such that 
+ *  sum(Weights[0:k]) > sum(Weights) / 2
+*/
+
+// TODO uncomment after fixed point compilation error is fixed 
+/**
 #[storage(read, write)] fn rebalance(new_stake: u64, new_vote: u64, 
                                      old_stake: u64, old_vote: u64,
                                      short: bool) { 
@@ -310,7 +348,50 @@ I don't remember if it's hardcoded for 10x leverage
     }
     storage.crank.write(crank);
 }
+*/
 
+#[storage(read, write)] fn save_pledge(account: Address, pledge: Pledge, long_touched: bool, short_touched: bool) {
+    let mut dead_short = false;
+    let mut dead_long = false;
+    if short_touched {
+        // TODO uncomment when following TODOs have been solved
+        // let returned = storage.sorted_shorts.remove(pledge.index_short);
+        // assert(returned.index_short == pledge.index_short);
+        // TODO use old values from returned variable and new values from pledge variable
+        // to call the rebalance() function
+        if pledge.live.short.debit > 0 && pledge.live.short.credit > 0 {
+            // TODO helper function
+            // this function returns a new index for where in the ordering 
+            // this position's reference should be inserted
+            
+            // let index = helper(pledge_cr);
+            
+            // TODO insert will move every subsequent element after the position of insertion
+            // down by one, but this will not update each Pledge's pointer to their index in the vector
+            // this is a problem because the only way to solve it is to iterate through every position again
+            // to do something so expensive will make Pledge position updates prohibitively expensive in terms of gas
+            
+            // storage.sorted_shorts.insert(index, pledge);
+        } else {
+            dead_short = true;
+        }
+    }
+    if long_touched { // TODO uncomment when above TODOs have been solved
+        // let returned = storage.sorted_longs.remove(pledge.index_long);
+        // assert(returned.index_long == pledge.index_long);
+        // TODO use old values from returned variable and new values from pledge variable
+        // to call the rebalance() function
+        if pledge.live.long.debit > 0 && pledge.live.long.credit > 0 {
+            // storage.sorted_longs.insert(index, pledge);
+        } else {
+            dead_long = true; 
+        }
+    }
+    if dead_short && dead_long && (pledge.quid == 0)
+    &&  (pledge.ether == 0) { storage.pledges.remove(account); }
+    else { storage.pledges.insert(account, pledge); }
+
+}
 
 #[storage(read, write)] fn fetch_pledge(owner: Address, create: bool, sync: bool) -> Pledge {
     let key = storage.pledges.get(owner);
@@ -319,33 +400,47 @@ I don't remember if it's hardcoded for 10x leverage
             long: Pod { credit: 0, debit: 0 },
             short: Pod { credit: 0, debit: 0 },
         },
-        stats: PledgeStats {                
-            long: Stats { val_ether: UFP128::zero(), 
-                stress_val: UFP128::zero(), avg_val: UFP128::zero(),
-                stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
-                premiums: UFP128::zero(), rate: UFP128::zero(),
+        stats: PledgeStats {       
+            // TODO uncomment after fixed point compilation error is fixed         
+            // long: Stats { val_ether: UFP128::zero(), 
+            //     stress_val: UFP128::zero(), avg_val: UFP128::zero(),
+            //     stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
+            //     premiums: UFP128::zero(), rate: UFP128::zero(),
+            // }, 
+            // short: Stats { val_ether: UFP128::zero(), 
+            //     stress_val: UFP128::zero(), avg_val: UFP128::zero(),
+            //     stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
+            //     premiums: UFP128::zero(), rate: UFP128::zero(),
+            // }, 
+            // val_ether_sp: UFP128::zero(), 
+            // val_total_sp: UFP128::zero(),
+            long: Stats { val_ether: 0, 
+                stress_val: 0, avg_val: 0,
+                stress_loss: 0, avg_loss: 0,
+                premiums: 0, rate: 0,
             }, 
-            short: Stats { val_ether: UFP128::zero(), 
-                stress_val: UFP128::zero(), avg_val: UFP128::zero(),
-                stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
-                premiums: UFP128::zero(), rate: UFP128::zero(),
+            short: Stats { val_ether: 0, 
+                stress_val: 0, avg_val: 0,
+                stress_loss: 0, avg_loss: 0,
+                premiums: 0, rate: 0,
             }, 
-            val_ether_sp: UFP128::zero(), 
-            val_total_sp: UFP128::zero(),
+            val_ether_sp: 0, 
+            val_total_sp: 0,
         }, ether: 0, quid: 0,
-       index: storage.addresses.len(),
+       // index_long: 0,
+       // index_short: 0,
     };
     if key.try_read().is_none() {
         if create {
             storage.addresses.push(owner);
             return pledge;
         } else {
-            revert(420);
+            revert(42);
         }
     } else {
         pledge = key.read();
         let crank = storage.crank.read(); // get this object from caller
-        // pass it along to try_kill to save gas on reads TODO
+        // pass it along to try_clap to save gas on reads TODO
         let mut long_touched = false;
         let mut short_touched = false;
         
@@ -353,17 +448,21 @@ I don't remember if it's hardcoded for 10x leverage
         // short_save from lick
 
         if sync {
-            let mut cr = calc_cr(crank.price, pledge.live.long.credit, pledge.live.long.debit, false);
-            // if dual flip options instead of liquidating, charge 16%, take 1% of profits
-            // TODO if paying 4-8% throw long into short
-            // else if 16 it's automated the whole time 
-            // else only pay .05% month protected upfront
-            
+            let mut cr = calc_cr(crank.price, 
+                pledge.live.long.credit,
+                pledge.live.long.debit,
+                false
+            ); 
             if cr > 0 && cr < ONE {
-                /**
-                let nums = try_kill(owner, 
-                    Pod { credit: pledge.quid, debit: pledge.ether }, 
-                    Pod { credit: pledge.live.long.credit, debit: pledge.live.long.debit }, 
+                let nums = try_clap(owner, 
+                    Pod { 
+                        credit: pledge.quid, 
+                        debit: pledge.ether 
+                    }, 
+                    Pod { 
+                        credit: pledge.live.long.credit, 
+                        debit: pledge.live.long.debit 
+                    }, 
                     false, crank.price
                 );
                 pledge.live.long.credit = nums.1;
@@ -371,15 +470,23 @@ I don't remember if it's hardcoded for 10x leverage
                 pledge.ether = nums.0;
                 pledge.quid = nums.2;
                 long_touched = true;    
-                */
             }
-            cr = calc_cr(crank.price, pledge.live.short.credit, pledge.live.short.debit, true);
+            cr = calc_cr(crank.price, 
+                pledge.live.short.credit, 
+                pledge.live.short.debit, 
+                true
+            );
             if cr > 0 && cr < ONE {
                 // TODO liquidate short
-                /**
-                let nums = try_kill(owner,
-                    Pod { credit: pledge.quid, debit: pledge.eth }, 
-                    Pod { credit: pledge.live.short.credit, debit: pledge.live.short.debit },
+                let nums = try_clap(owner,
+                    Pod { 
+                        credit: pledge.quid, 
+                        debit: pledge.ether 
+                    }, 
+                    Pod { 
+                        credit: pledge.live.short.credit, 
+                        debit: pledge.live.short.debit 
+                    },
                     true, crank.price
                 );
                 pledge.live.short.credit = nums.1;
@@ -387,18 +494,19 @@ I don't remember if it's hardcoded for 10x leverage
                 pledge.quid = nums.0;
                 pledge.ether = nums.2;
                 short_touched = true;
-                */
             }
+            // TODO massive action regarding take profits from DP based on contribution to solvency
+
             // TODO this will remove the pledge if it finds zeroes
             // storage.save_pledge(&id, &mut pledge, long_touched, short_touched);
-            // storage.pledges.insert(who, pledge); 
+            // storage.pledges.insert(who, pledge); // state is updated before being modified by function call that invoked fetch
         }
         return pledge;
     }
 }
 
-
-#[storage(read, write)] fn stress_pledge(owner: Address) { 
+/**
+#[storage(read, write)] fn stress_short_pledge(owner: Address) { 
     let mut stats = storage.stats.read();
     let mut live = storage.live.read();
     let mut deep = storage.deep.read();
@@ -416,19 +524,18 @@ I don't remember if it's hardcoded for 10x leverage
     let mut neg_one = one;
     neg_one = neg_one.sign_reverse();
 
-    let mut short_touched = false;
-    let mut long_touched = false;
+    let mut touched = false;
     let mut due = 0;         
-    
-    // TODO check precision stuff
+
     // will be sum of each borrowed crypto amt * its price
+    // TODO ratio
     p.stats.short.val_ether = price * UFP128::from_uint(p.live.short.debit) / UFP128::from_uint(ONE); 
     
-    let mut val_ether = p.stats.short.val_ether;
-    let mut qd = UFP128::from_uint(p.live.short.credit); // collat
+    let val_ether = p.stats.short.val_ether;
+    let qd = UFP128::from_uint(p.live.short.credit); // collat
 
     if val_ether > UFP128::zero() { // $ value of Pledge ETH debt
-        short_touched = true;
+        touched = true;
         let eth = IFP256::from(val_ether);
         // let mut iW = eth; // the amount of this crypto in the user's short debt portfolio, times the crypto's price
         // iW /= eth; // 1.0 for now...TODO later each crypto will carry a different weight in the portfolio, i.e. divide each iW by total $val 
@@ -438,22 +545,24 @@ I don't remember if it's hardcoded for 10x leverage
         let QD = IFP256::from(qd);
 
         // $ value of borrowed crypto in upward price shocks of avg & bad magnitudes
-        let mut pct = stress(true, vol, true);
-        let avg_val = (one + pct) * eth;
-        pct = stress(false, vol, true);
+        // let mut pct = stress(true, vol, true);
+        // let avg_val = (one + pct) * eth;
+        let pct = stress(false, vol, true);
 
         let stress_val = (one + pct) * eth;
         let mut stress_loss = stress_val - QD; // stressed value
 
+        // if stress_val > QD that means
         if stress_loss < IFP256::zero() { // TODO this doesn't make sense check cpp
             stress_loss = IFP256::zero(); // better if this is zero, if it's not 
             // that means liquidation (debt value worth > QD collat)
         } 
-        let mut avg_loss = avg_val - QD;
-        // stats.short.stress_loss += stress_loss; 
+        // let mut avg_loss = avg_val - QD;
+        stats.short.stress_loss += stress_loss.underlying; 
         p.stats.short.stress_loss = stress_loss.underlying;
+        
         // stats.short.avg_loss += avg_loss; 
-        p.stats.short.avg_loss = avg_loss.underlying;
+        // p.stats.short.avg_loss = avg_loss.underlying;
 
         // market determined implied volaility
         vol *= scale;
@@ -477,44 +586,70 @@ I don't remember if it's hardcoded for 10x leverage
         due = (
             p.stats.short.premiums / UFP128::from_uint(PERIOD)
         ).value.as_u64().unwrap();
-        // TODO uncomment above, options pricing
-        // this is a placeholder just for testing
-        // due = 5% x scale
-        
+
         p.live.short.credit -= due; // the user pays their due by losing a bit of QD collateral
         live.short.credit -= due; // reduce QD collateral in the LivePool
             
         // pay SolvencyProviders by reducing how much they're owed to absorb in QD debt
         if deep.long.credit > due { 
             deep.long.credit -= due;
-        } else { // take the remainder and add it to QD collateral to be absorbed from DeadPool
+        } else { // take the remainder and add it to QD collateral to be absorbed from DeepPool
             due -= deep.long.credit;
             deep.long.credit = 0;
             deep.short.debit += due;
         }     
-    }     
+    } 
+    if touched {
+        storage.stats.write(stats);
+        storage.live.write(live);
+        storage.deep.write(deep);
+        save_pledge(owner, p, true, false);
+    }
+}
+*/
+/**
+#[storage(read, write)] fn stress_long_pledge(owner: Address) { 
+    let mut stats = storage.stats.read();
+    let mut live = storage.live.read();
+    let mut deep = storage.deep.read();
+    let crank = storage.crank.read();
+
+    let mut p: Pledge = fetch_pledge(owner, false, false);
     
-    // TODO unsafe
+    require(crank.price > ONE, PriceError::NotInitialized);
+    require(crank.vol > ONE, PriceError::NotInitialized);
+    
+    let mut vol = UFP128::from_uint(crank.vol); // get annualized volatility of ETH
+    let price = UFP128::from_uint(crank.price);
+    
+    let one = IFP256::from(UFP128::from_uint(ONE));
+    let mut neg_one = one;
+    neg_one = neg_one.sign_reverse();
+
+    let mut touched = false;
+    let mut due = 0;         
+    
+    // TODO ratio
     p.stats.long.val_ether = price * UFP128::from_uint(p.live.long.credit) / UFP128::from_uint(ONE); // will be sum of each crypto collateral amt * its price
-    val_ether = p.stats.long.val_ether;
-    qd = UFP128::from_uint(p.live.long.debit); // debt
+    let val_ether = p.stats.long.val_ether;
+    let qd = UFP128::from_uint(p.live.long.debit); // debt
     
     if val_ether > UFP128::zero() {
         // let mut iW = val_ether; // the amount of this crypto in the user's long collateral portfolio, times the crypto's price
         // iW /= val_ether; // 1.0 for now...TODO later each crypto will carry a different weight in the portfolio
         // let var = (iW * iW) * (iVvol * iVvol); // aggregate for all Pledge's crypto collateral
         // let mut vol = var.sqrt(); // total portfolio volatility of the Pledge's crypto collateral
-        long_touched = true;
+        touched = true;
 
         let scale = UFP128::from_uint(crank.long.scale); 
         let eth = IFP256::from(val_ether);
         let QD = IFP256::from(qd);
 
         // $ value of crypto collateral in downward price shocks of bad & avg magnitudes
-        let mut pct = stress(true, vol, false); // TODO assert that pct is within the same precision as one = 100%
-        let avg_val = (one - pct) * eth;
+        // let mut pct = stress(true, vol, false); // TODO assert that pct is within the same precision as one = 100%
+        // let avg_val = (one - pct) * eth;
         
-        pct = stress(false, vol, false);
+        let pct = stress(false, vol, false);
         // model suggested $ value of collat in high stress
         let stress_val = (one - pct) * eth;
         
@@ -523,18 +658,17 @@ I don't remember if it's hardcoded for 10x leverage
         if stress_loss < IFP256::zero() {   
             stress_loss = IFP256::zero();  
         }
-        let mut avg_loss = QD - avg_val;
-        if avg_loss < IFP256::zero() { 
-            // TODO raise assertion?
-            avg_loss = IFP256::zero();   
-        }
+        // let mut avg_loss = QD - avg_val;
+        // if avg_loss < IFP256::zero() { 
+        //     // TODO raise assertion?
+        //     avg_loss = IFP256::zero();   
+        // }
 
-        // stats.long.stress_loss += stress_loss; 
+        stats.long.stress_loss += stress_loss.underlying; 
         p.stats.long.stress_loss = stress_loss.underlying;
         // stats.long.avg_loss += avg_loss; 
-        p.stats.long.avg_loss = avg_loss.underlying;
+        // p.stats.long.avg_loss = avg_loss.underlying;
         
-        // TODO self.data_l.scale;
         vol *= scale; // market determined implied volaility
         
         let delta = (neg_one * pct) + one; // using high stress pct
@@ -550,10 +684,9 @@ I don't remember if it's hardcoded for 10x leverage
                 UFP128::from_uint(p.live.long.debit)
             ) - payoff;
         };
-        // TODO crank.short.scale 
         p.stats.long.rate = pricing(payoff.underlying, 
             scale, val_ether, QD.underlying, vol, false
-        );
+        ); // APR
         p.stats.long.premiums = p.stats.long.rate * QD.underlying;
         stats.long.premiums += p.stats.long.premiums;
 
@@ -570,19 +703,127 @@ I don't remember if it's hardcoded for 10x leverage
         // pay SolvencyProviders by reducing how much they're owed to absorb in ether debt
         if deep.short.credit > due_in_ether { 
             deep.short.credit -= due_in_ether;
-        } else { // take the remainder and add it to ether collateral to be absorbed from DeadPool
+        } else { // take the remainder and add it to ether collateral to be absorbed from DeepPool
             due_in_ether -= deep.short.credit;
             deep.short.credit = 0;
             deep.long.debit += due_in_ether;
         }  
     }
-    
-    // TODO save crank, deep pool, live pool
-    // self.save_pledge(&id, &mut p, long_touched, short_touched);
+    if touched {
+        storage.stats.write(stats);
+        storage.live.write(live);
+        storage.deep.write(deep);
+        save_pledge(owner, p, true, false);
+    }
 }
-
+*/
 impl Quid for Contract 
 {    
+    // getters just for frontend testing
+    #[storage(read)] fn get_live() -> Pool { return storage.live.read(); }
+    #[storage(read)] fn get_deep() -> Pool { return storage.deep.read(); }
+    // #[storage(read)] fn get_brood() -> Pool { return storage.brood.read(); }
+
+    #[storage(read)] fn get_pledge_live(who: Address) -> Pool {
+        let key = storage.pledges.get(who);
+        if !(key.try_read().is_none()) {
+            let pledge = key.read();
+            return pledge.live;
+        }
+        return Pool {
+            long: Pod { credit: 0, debit: 0 },
+            short: Pod { credit: 0, debit: 0 },
+        }
+    }
+    #[storage(read)] fn get_pledge_brood(who: Address, eth: bool) -> u64 { 
+        let key = storage.pledges.get(who);
+        if !(key.try_read().is_none()) {
+            let pledge = key.read();
+            if eth {
+                return pledge.ether;
+            }
+            return pledge.quid;
+        }
+        return 0;
+    }   
+
+    #[storage(read, write)] fn set_price(price: u64) {
+        let mut crank = storage.crank.read();
+        crank.price = price;
+        storage.crank.write(crank);
+    }
+
+    #[payable]
+    #[storage(read, write)] fn borrow(amount: u64, short: bool) { // amount in QD 
+        let crank = storage.crank.read();
+        require(crank.long.done && crank.short.done, UpdateError::Deadlock);
+
+        let account = get_msg_sender_address_or_panic();
+        let mut pledge = fetch_pledge(account, true, true);
+        
+        let deposit = msg_amount();
+        require(amount > ONE, AssetError::BelowMinimum);
+        
+        let mut live = storage.live.read();
+        let mut eth = 0;
+        let mut qd = 0;
+
+        // First take care of attached deposit by appending collat
+        if msg_asset_id() == contract_id().into() { // QD
+            if !short && deposit > 0 {
+                eth = redeem(deposit);
+            }   
+            pledge.live.long.credit += eth;
+            live.long.credit += eth;
+        }
+        else if msg_asset_id() == BASE_ASSET_ID { // ETH
+            if short {
+                qd = invert(deposit)
+            }
+            pledge.live.short.credit += qd;
+            live.short.credit += qd;
+        }
+        else {
+            revert(42);
+        }
+        if !short {
+            let new_debt = pledge.live.long.debit + amount;
+           
+            let cr = calc_cr(crank.price, pledge.live.long.credit, new_debt, false);
+            if cr >= MIN_CR { // requested amount to borrow is within measure
+                mint(contract_id().into(), amount);
+                pledge.live.long.debit = new_debt;
+                live.long.debit += amount;
+            } 
+            else { // instead of throwing a "below MIN_CR", try to flash loan
+                // pledge = valve(account,
+                //     false, new_debt, 
+                //     live.long, pledge.live.long
+                // ); 
+            }
+        } 
+        else {
+            eth = ratio(ONE, amount, crank.price); // convert QD value to ETH amount
+            let new_debt = pledge.live.short.debit + eth;
+
+            let cr = calc_cr(crank.price, pledge.live.short.credit, new_debt, true);
+            if cr >= MIN_CR {
+                pledge.live.short.debit = new_debt; // this is how much crypto must be 
+                // eventually bought back (at a later price) to repay debt
+                live.short.debit += eth;
+            }
+            else {
+                let new_debt_in_qd = ratio(crank.price, new_debt, ONE); 
+                // pledge = valve(account,
+                //     true, new_debt_in_qd, 
+                //     live.short, pledge.live.short
+                // );
+            }
+
+        }
+        save_pledge(account, pledge, !short, short);
+    }
+
     // Close out caller's borrowing position by paying
     // off all pledge's own debt with own collateral
     #[storage(read, write)] fn fold(short: bool) { 
@@ -590,7 +831,7 @@ impl Quid for Contract
         // then fold the whole pledge
         // otherwise shrink by amount
 
-        let mut blood = storage.blood.read();
+        let mut brood = storage.brood.read();
         let crank = storage.crank.read();
         require(crank.price > 0, PriceError::NotInitialized);
 
@@ -619,7 +860,7 @@ impl Quid for Contract
             // there in the first place...but since we redeemed
             // the QD that was collat, we were able to clear some
             // long liquidatons along the way, destroying debt
-            // blood.debit += 
+            // brood.debit += 
         } else { // TODO all the same logic as above applies in shrink
             let eth = ratio(ONE, pledge.live.long.debit, crank.price);
             invert(eth);
@@ -641,11 +882,12 @@ impl Quid for Contract
     {
         let sender = get_msg_sender_address_or_panic();
         let mut amt = msg_amount();
-        require(amt > ONE, AssetError::BelowMinimum); // TODO 1000
+        require(amt > 0, AssetError::BelowMinimum);
         let mut pledge = fetch_pledge(sender, true, true);
 
         if msg_asset_id() == contract_id().into() { // QD
-            if live { // adding collat to borrowing
+            require(amt > ONE, AssetError::BelowMinimum); 
+            if live { // adding collat to LP
                 let mut pool = storage.live.read(); 
                 if long { 
                     if pledge.live.long.debit > 0 { // try pay down debt
@@ -654,19 +896,23 @@ impl Quid for Contract
                         amt -= qd;
                         // TODO should we burn QD from the supply?
                     }
-                    if amt > 0 { // TODO
+                    if amt > 0 { 
+                        // TODO
                         // redeem remaining QD 
                         // deposit ETH suretty 
                     }
                 }
-                else { pledge.live.short.credit += amt;
+                else { // short
+                    pledge.live.short.credit += amt;
                     pool.short.credit += amt;
                     storage.live.write(pool);
                 }
-            } else { pledge.quid += amt;
-                let mut pod = storage.blood.read();
+            } 
+            else { // adding collat to SP
+                pledge.quid += amt;
+                let mut pod = storage.brood.read();
                 pod.credit += amt;
-                storage.blood.write(pod);   
+                storage.brood.write(pod);   
             }
         } 
         else if msg_asset_id() == BASE_ASSET_ID { // ETH
@@ -691,15 +937,30 @@ impl Quid for Contract
                 }
             }
             else { pledge.ether += amt;
-                let mut pod = storage.blood.read();
+                let mut pod = storage.brood.read();
                 pod.debit += amt;
-                storage.blood.write(pod);
+                storage.brood.write(pod);
             }
+        } 
+        else {
+            revert(42);
         }
         storage.pledges.insert(sender, pledge); // TODO save_pledge
     }
 
-    // 
+    // https://www.lawinsider.com/dictionary/loan-agreement-rider
+    // if clap have a value attached to it, this is debt restructuring
+    // collateral is held in escrow 
+    // repayment schedule
+    #[payable]
+    #[storage(read, write)] fn clap(who: Address) { // who...who? what're you a fuckin owl
+        // riders try save using the callers pledge against target
+        // if success attach caller as a rider on the loan 
+
+        let mut pledge = fetch_pledge(who, false, true);
+        // if account is paying 2x from initial collateral
+        // 
+    }
 
     /* Function exists to allow withdrawal of LP and SP deposits, 
      * from LP back into SP or out. From SP, only QD (selling to DP)
@@ -711,7 +972,7 @@ impl Quid for Contract
     // at the end update global total, delta since 
     // if withdraw with msg_amount > 0, it's a borrow 
     // which uses the valve function if the QD < 10x
-    #[storage(read, write)] fn withdraw(amt: u64, qd: bool, sp: bool) {    
+    #[storage(read, write)] fn withdraw(amt: u64, qd: bool, sp: bool) {
         let crank = storage.crank.read();
         require(crank.price > ONE, PriceError::NotInitialized);
         require(amt > 0, AssetError::BelowMinimum);
@@ -719,15 +980,19 @@ impl Quid for Contract
         let account = get_msg_sender_address_or_panic();
         let mut pledge = fetch_pledge(account, false, true);
         
-        // TODO if withdrawal out from SP and not into it
+        // TODO if withdrawal out of SP and not INTO it
         // sync must be true because what if timing withdrawl
         // right before liquidation, takes in % of losses owed
-        // as a % of the deposit being withdrawn. 
+        // depending on withdrawal amount (and it's % of total solvency)
 
         let mut least: u64 = 0; 
         let mut cr: u64 = 0; 
         if !qd {
             if !sp {
+                // TODO
+                // compare original position value to current
+                // do not take fee if current value is less 
+
                 let mut pool = storage.live.read(); // Pay withdraw fee
                 least = min(pledge.live.long.credit, (amt + amt/100));
                 pledge.live.long.credit -= least;
@@ -736,14 +1001,16 @@ impl Quid for Contract
                 require(cr >= MIN_CR, ErrorCR::BelowMinimum);
                 
                 pool.long.credit -= least;
-                storage.live.write(pool);
+                storage.live.write(pool); 
             } 
             else {
-                let mut pod = storage.blood.read();
+                let mut pod = storage.brood.read();
                 least = min(pledge.ether, amt); 
                 pledge.ether -= least;
                 pod.debit -= least;
-                storage.blood.write(pod);
+                storage.brood.write(pod);
+
+                // 
             }
             transfer(Identity::Address(account), BASE_ASSET_ID, least);
         } 
@@ -761,29 +1028,24 @@ impl Quid for Contract
                 storage.live.write(pool);
             }
             else {
-                let mut pod = storage.blood.read();
+                let mut pod = storage.brood.read();
                 least = min(pledge.quid, amt); 
                 pledge.quid -= least;
                 pod.credit -= least;
-                storage.blood.write(pod);
+                storage.brood.write(pod);
             }
             transfer(Identity::Address(account), contract_id().into(), least);
         }
         storage.pledges.insert(account, pledge); 
     }
     
-    // 500000000 is the max gas a tx call can accept
-    // A external maintenance script must call this regularly, 
-    // in order to drive stress testing, re-pricing options for 
-    // borrowers on account of this, and SolvencyTarget as SP's 
-    // weighted-median voting concedes the target solvency 
-    #[storage(read, write)] fn update() {
+    #[storage(read, write)] fn update_shorts() {
         let mut crank = storage.crank.read();
-        let mut stats = storage.stats.read();
-        let blood = storage.blood.read();
-        if !crank.done {
-            let len = storage.addresses.len();
-            let mut start = crank.index;
+        let mut live = storage.live.read();
+        let mut deep = storage.deep.read();
+        if !crank.short.done {
+            let len = storage.sorted_shorts.len();
+            let mut start = crank.short.index;
             let left = len - start;
             let mut many = 11; // arbitrary number of Pledges to iterate at a time
             // limited by maximum gas that can be burned in one transaction call
@@ -792,46 +1054,133 @@ impl Quid for Contract
             }
             let stop = start + many;
             while start < stop { 
-                let id = storage.addresses.get(start).unwrap().read();
-                // stress_pledge(id);
-                crank.index += 1;
+                let id = storage.sorted_shorts.get(start).unwrap().read();
+                // stress_short_pledge(id); // TODO uncomment after Sway compiler fixed
+                // TODO delete ~20 lines below after uncommenting the line above
+                let mut pledge = fetch_pledge(id, false, false);
+                let mut due = pledge.live.short.credit / 6000; // roughly 16% / 365 / 3 times a day
+                
+                pledge.live.short.credit -= due; // the user pays their due by losing a bit of QD collateral
+                live.short.credit -= due; // reduce QD collateral in the LivePool
+                    
+                // pay SolvencyProviders by reducing how much they're owed to absorb in QD debt
+                if deep.long.credit > due { 
+                    deep.long.credit -= due;
+                } else { // take the remainder and add it to QD collateral to be absorbed from DeepPool
+                    due -= deep.long.credit;
+                    deep.long.credit = 0;
+                    deep.short.debit += due;
+                }
+                storage.pledges.insert(id, pledge);     
+                crank.short.index += 1;
                 start += 1;
             }
-            if crank.index == len {
-                crank.index = 0;
-                crank.done = true;
-                crank.last_update = timestamp();
+            if crank.short.index == len {
+                crank.short.index = 0;
+                crank.short.done = true;
             }
         } 
-        else { // the first time we call update in one cycle, done = true
-        // that means we need to calculate global values...that gives us 
-        // scale variable that is used for individual values 
+        storage.crank.write(crank);
+        storage.live.write(live);
+        storage.deep.write(deep);
+    }
+    
+    
+    // 500000000 is the max gas a tx call can accept
+    // A external maintenance script must call this regularly, 
+    // in order to drive stress testing, re-pricing options for 
+    // borrowers on account of this, and SolvencyTarget as SP's 
+    // weighted-median voting concedes the target solvency 
+    // TODO refactor try breaking into two separate functions, or compiler freezes
+    #[storage(read, write)] fn update_longs() {
+        let mut crank = storage.crank.read();
+        let mut live = storage.live.read();
+        let mut deep = storage.deep.read();
+        if !crank.long.done {
+            let len = storage.sorted_longs.len();
+            let mut start = crank.long.index;
+            let left = len - start;
+            let mut many = 11; // arbitrary number of Pledges to iterate at a time
+            // limited by maximum gas that can be burned in one transaction call
+            if 11 > left {   
+                 many = left;    
+            }
+            let stop = start + many;
+            while start < stop { 
+                let id = storage.sorted_longs.get(start).unwrap().read();
+                // stress_long_pledge(id); // TODO uncomment after Sway compiler fixed
+                // TODO delete ~20 lines below after uncommenting the line above
+                let mut pledge = fetch_pledge(id, false, false);
+                let mut due = pledge.live.long.credit / 6000; // roughly 16% / 365 / 3 times a day
+                let mut due_in_ether = ratio(ONE, crank.price, due);
+                // Debit Pledge's long side for duration
+                // (it's credited with ether on creation)
+                pledge.live.long.credit -= due_in_ether; 
+                live.long.credit -= due_in_ether;
+                // pay SolvencyProviders by reducing how much they're owed to absorb in ether debt
+                if deep.short.credit > due_in_ether { 
+                    deep.short.credit -= due_in_ether;
+                } else { // take the remainder and add it to ether collateral to be absorbed from DeepPool
+                    due_in_ether -= deep.short.credit;
+                    deep.short.credit = 0;
+                    deep.long.debit += due_in_ether;
+                }  
+                storage.pledges.insert(id, pledge);
+                crank.long.index += 1;
+                start += 1;
+            }
+            if crank.long.index == len {
+                crank.long.index = 0;
+                crank.long.done = true;
+            }
+        } 
+        storage.crank.write(crank);
+        // TODO uncomment these lines after sway compiler is fixed
+        storage.live.write(live);
+        storage.deep.write(deep);        
+    }  
+    
+    #[storage(read, write)] fn update() {
+        let mut crank = storage.crank.read();
+        let mut stats = storage.stats.read();
+        let brood = storage.brood.read();
+        // the first time we call update in one cycle, done = true
+        // that means we need to calculate global risk...that gives us 
+        // scale variable that is used for individual pledge pricing  
+        if crank.long.done && crank.short.done {
             let time = timestamp();
             let time_delta = time - crank.last_update;
+            // TODO make the constant an enum that can be one of a few consts based on governance?
             if time_delta >= EIGHT_HOURS {
                 let price = crank.price;
-                stats.val_ether_sp = UFP128::from_uint(
-                    ratio(price, blood.debit, ONE)
-                );
-                stats.val_total_sp = UFP128::from_uint(blood.credit) + stats.val_ether_sp;
+                stats.val_ether_sp = // UFP128::from_uint(
+                    ratio(price, brood.debit, ONE);
+                // );
+                // stats.val_total_sp = UFP128::from_uint(brood.credit) + stats.val_ether_sp;
+                stats.val_total_sp = brood.credit + stats.val_ether_sp;
                 storage.stats.write(stats);
+                // TODO uncomment these lines when compiler is fixed
                 // sp_stress(None, false); // stress the long side of the SolvencyPool
                 // sp_stress(None, true); // stress the short side of the SolvencyPool
                 // risk(false); risk(true); // calculate solvency and scale factor 
-                crank.done = false;
+                crank.long.done = false;
+                crank.short.done = false;
+                crank.last_update = timestamp();
             } 
             else {
                 require(true, UpdateError::TooEarly); 
             }
+            storage.crank.write(crank);
         }
-        storage.crank.write(crank);
-    }  
+    }
 }
 
+// TODO uncomment after fixed point compilation error is fixed
+/**
 #[storage(read, write)] fn sp_stress(maybe_addr: Option<Address>, short: bool) -> UFP128 {
     let mut stats = storage.stats.read();
     let crank = storage.crank.read();
-    let blood = storage.blood.read();
+    let brood = storage.brood.read();
     
     let ivol = UFP128::from_uint(crank.vol); // get annualized volatility of ETH
     let price = UFP128::from_uint(crank.price);
@@ -845,7 +1194,7 @@ impl Quid for Contract
 
     if stats.val_ether_sp > UFP128::zero() {
         iW = stats.val_ether_sp / stats.val_total_sp;
-        jW = UFP128::from_uint(blood.credit) / stats.val_total_sp;
+        jW = UFP128::from_uint(brood.credit) / stats.val_total_sp;
     }
     if let Some(addr) = maybe_addr {
         global = false;
@@ -865,8 +1214,8 @@ impl Quid for Contract
                 if stats.val_ether_sp > UFP128::zero() {
                     delta_eth = stats.val_ether_sp - val_ether;
                 }
-                if blood.credit > 0 {
-                    delta_qd = UFP128::from_uint(blood.credit - p.quid);
+                if brood.credit > 0 {
+                    delta_qd = UFP128::from_uint(brood.credit - p.quid);
                 }
                 let delta_val = stats.val_total_sp - value;
                 
@@ -897,6 +1246,9 @@ impl Quid for Contract
             stress_val *= one + stress_pct.underlying;
             avg_val *= one + avg_pct.underlying;
             if global {
+                // TODO verify that the aggregated values from 
+                // stress_short_pledge evaluate to the above
+                // plus or minus some discrepancy
                 stats.short.stress_val = stress_val;
                 stats.short.avg_val = avg_val;
             } 
@@ -908,8 +1260,9 @@ impl Quid for Contract
         return UFP128::zero();
     }
 }
+*/
 
-
+/**
 #[storage(read, write)] fn risk(short: bool) {
     let mut crank = storage.crank.read();
     let mut stats = storage.stats.read();
@@ -985,13 +1338,16 @@ impl Quid for Contract
     storage.crank.write(crank);
     // storage.stats.write(stats);
 }
+*/
 
+// TODO find the biggest one first, with the lowest CR (less than 1.1)
+// keep going down by size until you find one with appropriate CR
+// then keep clipping by ascending CR until you've satisfied the amount
 /**
-  * The second act is called "The Turn". The magician takes the ordinary 
-  * something and makes it do something extraordinary. Now you're looking
-  * for the secret...but you won't find it, because of course you're not
-  * really looking...you don't really want to know, you wanna be fooled, but
-  * you wouldn't clap yet...because makin' somethin' disappear ain't enough  
+#[storage(read, write)] fn churn_from(amt: u64, short: bool, sender: Address) -> u64 {
+
+
+}
 */
 
 #[storage(read, write)] fn churn(amt: u64, short: bool, sender: Address) -> u64 {
@@ -1029,7 +1385,7 @@ impl Quid for Contract
 }
 
 
-#[storage(read, write)] fn redeem(quid: u64) {
+#[storage(read, write)] fn redeem(quid: u64) -> u64 {
     let mut bought: u64 = 0; // ETH collateral to be released from deepPool's long portion
     let mut redempt: u64 = 0; // amount of QD debt being cleared from the DP
     let mut amt = quid; 
@@ -1063,17 +1419,17 @@ impl Quid for Contract
             // so that the sureties are left to be absorbed
                 
             if amt > 0 { // there is remaining QD to redeem after redeeming from deepPool  
-                let mut blood = storage.blood.read();
+                let mut brood = storage.brood.read();
                 let mut eth = ratio(ONE, amt, crank.price);
                 assert(this_balance(BASE_ASSET_ID) > eth);
 
-                let mut least = min(blood.debit, eth); 
+                let mut least = min(brood.debit, eth); 
                 amt = ratio(crank.price, amt, ONE); // QD paid to SP for ETH sold 
                 // storage.token.internal_deposit(&env::current_account_id(), amt); TODO
 
-                blood.credit += amt; // offset, in equal QD value, the ETH sold by SP
-                blood.debit -= least; // sub ETH that's getting debited out of the SP
-                storage.blood.write(blood);
+                brood.credit += amt; // offset, in equal QD value, the ETH sold by SP
+                brood.debit -= least; // sub ETH that's getting debited out of the SP
+                storage.brood.write(brood);
                 
                 eth -= least;
                 if eth > 0 { // TODO up to a limit  
@@ -1088,19 +1444,13 @@ impl Quid for Contract
             storage.deep.write(deep);
         }
     }
+    return quid; // TODO calculate how much ETH was returned
 }
 
 // A debit to a liability account means the amount owed is reduced,
-// and a credit to a liability account means it's increased. For an 
-// income (DP) account, you credit to increase it and debit to decrease,
-// 
-// expense (DP) account is reversed: gets debited up, and credited down 
+// and a credit to a liability account means it's increased. 
 
-// pub(crate) fn invertFrom(quid: u64) {
-//     // TODO move turnFrom piece here and let `update` bot handle this using GFund for liquidity
-// }
-
-#[storage(read, write)] fn invert(eth: u64) { // inverted air conditions add efficiency to 
+#[storage(read, write)] fn invert(eth: u64) -> u64 { // inverted air conditions add efficiency to 
     // cash flow
     let mut bought: u64 = 0; // QD collateral to be released from deepPool's short portion
     let mut redempt: u64 = 0; // amount of ETH debt that's been cleared from DP
@@ -1133,16 +1483,16 @@ impl Quid for Contract
             deep.short.debit -= bought; // QD Collat
         }
         if amt > 0 { // remaining ETH to redeem after clearing against LivePool and deepPool
-            let mut blood = storage.blood.read();
+            let mut brood = storage.brood.read();
             
             let mut quid = ratio(crank.price, amt, ONE);            
-            let min_qd = min(quid, blood.credit);
+            let min_qd = min(quid, brood.credit);
             let min_eth = ratio(ONE, min_qd, crank.price);
             
             // storage.token.internal_withdraw(&env::current_account_id(), min); TODO
-            blood.debit += min_eth;
-            blood.credit -= min_qd;
-            storage.blood.write(blood);
+            brood.debit += min_eth;
+            brood.credit -= min_qd;
+            storage.brood.write(brood);
             
             amt -= min_eth;
             quid -= min_qd;
@@ -1158,6 +1508,7 @@ impl Quid for Contract
         }
         storage.deep.write(deep);
     }
+    return eth; // TODO return how much QD was bought for ETH
 }
 
 // delight fixture
@@ -1238,9 +1589,11 @@ impl Quid for Contract
 
         let val_coll = ratio(crank.price, collat, ONE);
 
-        let delta: I64 = I64::from(db - val_coll);
-        assert(delta > I64::from(0)); // borrower was not supposed to be liquidated
-        let db_minus_delta = db - delta.into();
+        assert(db > val_coll);
+        // let delta: I64 = I64::from(db - val_coll);
+        // assert(delta > I64::from(0)); // borrower was not supposed to be liquidated
+        let delta = db - val_coll;
+        let db_minus_delta = db - delta; //.into();
 
         deep.long.debit += db_minus_delta;
 
@@ -1248,15 +1601,7 @@ impl Quid for Contract
     }
 }
 
-// blade
-// can you blush 
-// https://www.youtube.com/watch?v=5kqVgbhenEI
-
-// TODO rewrite to take less parameters cleaner savers
-// // TODO find the biggest clip biggest one first, or the lowest CR first if same size 
-
-
-#[storage(read, write)] fn try_kill(id: Address, SPod: Pod, LPod: Pod, short: bool, price: u64) -> (u64, u64, u64, u64) {
+#[storage(read, write)] fn try_clap(id: Address, SPod: Pod, LPod: Pod, short: bool, price: u64) -> (u64, u64, u64, u64) {
     /* Liquidation protection does an off-setting where deficit margin (delta from min CR)
     in a Pledge can be covered by either its SP deposit, or possibly (TODO) the opposite 
     borrowing position. However, it's rare that a Pledge will borrow both long & short. */
@@ -1270,13 +1615,13 @@ impl Quid for Contract
     let mut cr: u64 = 0;
 
     let old_live = storage.live.read();
-    let old_blood = storage.blood.read();
+    let old_blood = storage.brood.read();
 
     if short {
         nums = short_save(SPod, LPod, price);
         cr = calc_cr(price, nums.1, nums.3, true); // side
         let mut new_live = storage.live.read();
-        let mut new_blood = storage.blood.read();
+        let mut new_blood = storage.brood.read();
         let mut save = false;
         
         // the result of short_save was...unsuccessful
@@ -1300,7 +1645,7 @@ impl Quid for Contract
             // _end TODO 
             if save {
                 storage.live.write(new_live);
-                storage.blood.write(new_blood);
+                storage.brood.write(new_blood);
             }
             // move liquidated assets from LivePool to deepPool
             snatch(nums.3, nums.1, true);
@@ -1320,7 +1665,7 @@ impl Quid for Contract
         nums = long_save(SPod, LPod, price);
         cr = calc_cr(price, nums.1, nums.3, false);
         let mut new_live = storage.live.read();
-        let mut new_blood = storage.blood.read();
+        let mut new_blood = storage.brood.read();
         let mut save = false;
 
         if cr < ONE { // fully liquidating the long side                          
@@ -1340,7 +1685,7 @@ impl Quid for Contract
             // _end TODO 
             if save {
                 storage.live.write(new_live);
-                storage.blood.write(new_blood);
+                storage.brood.write(new_blood);
             }
             snatch(nums.3, nums.1, false); 
             return (SPod.debit, 0, SPod.credit, 0); // zeroed out pledge
@@ -1358,7 +1703,7 @@ impl Quid for Contract
 #[storage(read, write)] fn long_save(SPod: Pod, LPod: Pod, price: u64) -> (u64, u64, u64, u64) {
     let crank = storage.crank.read();
     let mut live = storage.live.read();
-    let mut blood = storage.blood.read();
+    let mut brood = storage.brood.read();
 
     let mut ether = SPod.debit;
     let mut quid = SPod.credit;
@@ -1386,7 +1731,7 @@ impl Quid for Contract
         credit += least;
         
         live.long.credit += least; // add LP collat
-        blood.debit -= least; // remove eth from SP
+        brood.debit -= least; // remove eth from SP
     }
     if delta > 0 && quid > 0 { // 
         // recalculate delta in units of QD
@@ -1396,10 +1741,10 @@ impl Quid for Contract
         quid -= least;
         debit -= least;
         
-        blood.credit -= least;
+        brood.credit -= least;
         live.long.debit -= least;
     }
-    storage.blood.write(blood);
+    storage.brood.write(brood);
     storage.live.write(live);
     
     return (ether, credit, quid, debit); // we did the best we could, 
@@ -1409,7 +1754,7 @@ impl Quid for Contract
 #[storage(read, write)] fn short_save(SPod: Pod, LPod: Pod, price: u64) -> (u64, u64, u64, u64) {
     let crank = storage.crank.read();
     let mut live = storage.live.read();
-    let mut blood = storage.blood.read();
+    let mut brood = storage.brood.read();
     
     let mut ether = SPod.debit;
     let mut quid = SPod.credit;
@@ -1433,7 +1778,7 @@ impl Quid for Contract
     if least > 0 {
         delta -= least;
         quid -= least;
-        blood.credit -= least;    
+        brood.credit -= least;    
 
         credit += least;
         live.short.credit += least;
@@ -1446,10 +1791,10 @@ impl Quid for Contract
         ether -= least;
         debit -= least;
 
-        blood.debit -= least;
+        brood.debit -= least;
         live.short.debit -= least;
     }
-    storage.blood.write(blood);
+    storage.brood.write(brood);
     storage.live.write(live);
 
     return (quid, credit, ether, debit);
