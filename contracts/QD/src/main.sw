@@ -496,7 +496,7 @@ I don't remember if it's hardcoded for 10x leverage
                 short_touched = true;
             }
             // TODO massive action regarding take profits from DP based on contribution to solvency
-
+            // take losses equivalent to profits...the rest of the losses are saved until withdrawals
             // TODO this will remove the pledge if it finds zeroes
             // storage.save_pledge(&id, &mut pledge, long_touched, short_touched);
             // storage.pledges.insert(who, pledge); // state is updated before being modified by function call that invoked fetch
@@ -826,7 +826,7 @@ impl Quid for Contract
 
     // Close out caller's borrowing position by paying
     // off all pledge's own debt with own collateral
-    #[storage(read, write)] fn fold(short: bool) { 
+    #[storage(read, write)] fn fold(short: bool, amount: ) { 
         // TODO take an amount, if amount is zero
         // then fold the whole pledge
         // otherwise shrink by amount
@@ -949,7 +949,7 @@ impl Quid for Contract
     }
 
     // https://www.lawinsider.com/dictionary/loan-agreement-rider
-    // if clap have a value attached to it, this is debt restructuring
+    // if clap has a value attached to it, this is debt restructuring
     // collateral is held in escrow 
     // repayment schedule
     #[payable]
@@ -969,9 +969,7 @@ impl Quid for Contract
      * & last boolean parameter indicates currency being withdrawn. 
      */
     // TODO set old stake to current stake, 
-    // at the end update global total, delta since 
-    // if withdraw with msg_amount > 0, it's a borrow 
-    // which uses the valve function if the QD < 10x
+    // at the end update global total, delta since then
     #[storage(read, write)] fn withdraw(amt: u64, qd: bool, sp: bool) {
         let crank = storage.crank.read();
         require(crank.price > ONE, PriceError::NotInitialized);
@@ -1615,13 +1613,13 @@ impl Quid for Contract
     let mut cr: u64 = 0;
 
     let old_live = storage.live.read();
-    let old_blood = storage.brood.read();
+    let old_brood = storage.brood.read();
 
     if short {
         nums = short_save(SPod, LPod, price);
         cr = calc_cr(price, nums.1, nums.3, true); // side
         let mut new_live = storage.live.read();
-        let mut new_blood = storage.brood.read();
+        let mut new_brood = storage.brood.read();
         let mut save = false;
         
         // the result of short_save was...unsuccessful
@@ -1632,23 +1630,25 @@ impl Quid for Contract
                 save = true;
                 // let delta = SPod.credit - nums.0; 
                 new_live.short.credit = old_live.short.credit; // -= delta;
-                new_blood.credit = old_blood.credit; // += delta;
+                new_brood.credit = old_brood.credit; // += delta;
             }
             if SPod.debit > nums.2 { // undo SP ETH changes
                 save = true;
                 // let delta = SPod.debit - nums.2;
                 new_live.short.debit = old_live.short.debit; // += delta;
-                new_blood.debit = old_blood.debit; // += delta;
+                new_brood.debit = old_brood.debit; // += delta;
             }
             // TODO record the price of liquidation
             // add it to buy-backable collateral (average the price)
             // _end TODO 
             if save {
                 storage.live.write(new_live);
-                storage.brood.write(new_blood);
+                storage.brood.write(new_brood);
             }
             // move liquidated assets from LivePool to deepPool
             snatch(nums.3, nums.1, true);
+            // 
+            // Record that this must of the put is in escrow (call)
             // TODO keep debt recorded as negative, this marks that
             // collateral amount may be repurchased at that price
             // like an orderbook for call options. 
@@ -1665,7 +1665,7 @@ impl Quid for Contract
         nums = long_save(SPod, LPod, price);
         cr = calc_cr(price, nums.1, nums.3, false);
         let mut new_live = storage.live.read();
-        let mut new_blood = storage.brood.read();
+        let mut new_brood = storage.brood.read();
         let mut save = false;
 
         if cr < ONE { // fully liquidating the long side                          
@@ -1673,19 +1673,16 @@ impl Quid for Contract
             if SPod.debit > nums.0 { // undo SP ETH changes
                 // let delta = SPod.debit - nums.0;
                 new_live.long.credit = old_live.long.credit; // -= delta; 
-                new_blood.debit = old_blood.debit; // += delta;
+                new_brood.debit = old_brood.debit; // += delta;
             }
             if SPod.credit > nums.2 { // undo SP QD changes
                 // let delta = SPod.credit - nums.2;
                 new_live.long.debit = old_live.long.debit; // += delta; 
-                new_blood.credit = old_blood.credit; // += delta;
+                new_brood.credit = old_brood.credit; // += delta;
             }
-            // TODO record the price of liquidation
-            // add it to sellow-backable collateral (average the price)
-            // _end TODO 
             if save {
                 storage.live.write(new_live);
-                storage.brood.write(new_blood);
+                storage.brood.write(new_brood);
             }
             snatch(nums.3, nums.1, false); 
             return (SPod.debit, 0, SPod.credit, 0); // zeroed out pledge

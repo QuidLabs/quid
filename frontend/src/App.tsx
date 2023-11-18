@@ -29,7 +29,7 @@ function App() {
     .set_price(inputValue)
     // .txParams({ variableOutputs: 1}) // this indicates to expect a return from the function
     // .callParams({ // this indicates msg.value to attach
-    //   forward: [amount, CONTRACT_ID],
+    //   forward: [amount, CONTRACT_ID], // CONTRACT_ID is asset_id, 0x0000000 in chainConfig.json is ETH
     // })
     .call();
     console.log("RESPONSE:", resp.value)

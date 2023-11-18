@@ -5,17 +5,27 @@
 #### step 0
 run `npm install`  
 
-compile contract with `forc build` from either root project directory or contracts folder  
+cd `contracts/QD`
+compile contract with `forc build` and run rust tests with `cargo test`
 
 `cd` into frontend folder, and generate type bindings (the frontend requires these for communicating with the contract)  
 
 `npx fuels typegen -i ../contracts/QD/out/debug/QD-abi.json -o ./src/types`
 
-#### step 1  
+#### step 1
 Download Fuel [Wallet](https://wallet.fuel.network/docs/install/)  
+
+Make sure to set the network to http://localhost:4000/graphql
+It will only work when you actually run the local node  
+or use testnet
 
 #### step 2  load up some users with initial balances
 Inside `App.tsx` insert the address from inside your Fuel Wallet (string starts with fuel...)  
+or use the one from `forc wallet accounts`  
+it will tell you to init if first time
+`forc wallet new`  
+`forc wallet account new`  
+
 
 ### `npm start`  
 
@@ -33,3 +43,8 @@ Run this command from the root directory (not frontend folder, unlike npm start)
 
 ### run `forc deploy --unsigned` from the contracts folder
 Add the contract id returned by this command to App.tsx  
+
+or `forc deploy --testnet`  
+in a separate terminal window use the provided transaction id and account from forc-wallet  
+to sign with `forc-wallet sign --acccount 0 tx-id ...`  
+paste the result into the deployment terminal window  
