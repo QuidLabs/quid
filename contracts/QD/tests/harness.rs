@@ -1,61 +1,61 @@
-// ANCHOR: contract-test-all
 use fuels::{prelude::*, types::ContractId};
-
+ 
 // Load abi from json
-abigen!(Contract(
-    name = "Contract",
-    abi = "contracts/QD/out/debug/QD-abi.json"
-));
-
-async fn get_contract_instance() -> (Contract<WalletUnlocked>, ContractId) {
-    // Launch a local network and deploy the contract
-    let mut wallets = launch_custom_provider_and_get_wallets(
-        WalletsConfig::new(
-            Some(1),             /* Single wallet */
-            Some(1),             /* Single coin (UTXO) */
-            Some(1_000_000_000), /* Amount per coin */
-        ),
-        None,
-        None,
-    )
-    .await;
-    let wallet = wallets.pop().unwrap();
-
-    let id = Contract::load_from(
-        "./out/debug/QD.bin",
-        LoadConfiguration::default(),
-    )
-    .unwrap()
-    .deploy(&wallet, TxParameters::default())
-    .await
-    .unwrap();
-
-    let instance = Contract::new(id.clone(), wallet);
-
-    (instance, id.into())
+abigen!(Contract, "./out/debug/QD-abi.json");
+ 
+async fn get_contract_instance() -> (Contract, ContractId) {
+	// Launch a local network and deploy the contract
+	let mut wallets = launch_custom_provider_and_get_wallets(
+		WalletsConfig::new(
+			Some(1),			 /* Single wallet */
+			Some(1),			 /* Single coin (UTXO) */
+			Some(1_000_000_000), /* Amount per coin */
+		),
+		None,
+	)
+	.await;
+	let wallet = wallets.pop().unwrap();
+ 
+	let id = Contract::load_from(
+		"./out/debug/QD.bin",
+		LoadConfiguration::default().set_storage_configuration(
+			StorageConfiguration::load_from(
+				"./out/debug/QD-storage_slots.json",
+			)
+			.unwrap(),
+		),
+	)
+	.unwrap()
+	.deploy(&wallet, TxParameters::default())
+	.await
+	.unwrap();
+ 
+	let instance = Contract::new(id.to_string(), wallet);
+ 
+	(instance, id.into())
 }
-
+ 
 #[tokio::test]
-async fn can_get_contract_id() {
-    let (_instance, _id) = get_contract_instance().await;
-
-    // Now you have an instance of your contract you can use to test each function
+async fn initialize_and_increment() {
+	let (contract_instance, _id) = get_contract_instance().await;
+	// Now you have an instance of your contract you can use to test each function
+ 
+	// let result = contract_instance
+	// 	.methods()
+	// 	.initialize_counter(42)
+	// 	.call()
+	// 	.await
+	// 	.unwrap();
+ 
+	// assert_eq!(42, result.value);
+ 
+	// // Call `increment_counter()` method in our deployed contract.
+	// let result = contract_instance
+	// 	.methods()
+	// 	.increment_counter(10)
+	// 	.call()
+	// 	.await
+	// 	.unwrap();
+ 
+	// assert_eq!(52, result.value);
 }
-
-// ANCHOR: contract-test
-// #[tokio::test]
-// async fn test_increment() {
-//     let (instance, _id) = get_contract_instance().await;
-
-    // Increment the counter
-    // instance.methods().increment().call().await.unwrap();
-
-    // // Get the current value of the counter
-    // let result = instance.methods().count().call().await.unwrap();
-
-    // // Check that the current value of the counter is 1.
-    // // Recall that the initial value of the counter was 0.
-    // assert_eq!(result.value, 1);
-// }
-// ANCHOR_END: contract-test
-// ANCHOR_END: contract-test-all
