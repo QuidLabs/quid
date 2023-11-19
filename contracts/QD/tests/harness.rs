@@ -50,12 +50,22 @@ pub async fn setup() -> (
     // Creates a contract instance and a script instance. Which allow for easy interaction with the contract and script.
     let contract_instance = QD::new(id, wallet.clone());
 
-    (contract_instance)
+    return contract_instance
 }
 
 #[tokio::test]
 async fn test_script() {
     // Call the setup function to deploy the contract and create the contract instance
-    let contract_instance = setup().await;
+    let instance = setup().await;
+
+    // Increment the counter
+    instance.methods().set_price(42).call().await.unwrap();
+
+    // Get the current value of the counter
+    let result = instance.methods().get_price().call().await.unwrap().value;
+
+    assert_eq!(result, 42);
+
+    // test set price and get price to make sure storage works
     // assert_eq!(result, 0);
 }

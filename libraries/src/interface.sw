@@ -4,7 +4,7 @@ pub mod imports;
 use imports::*;
 
 abi Quid {
-    // getters just for frontend testing
+    // getters just for frontend testing    
     #[storage(read)] fn get_live() -> Pool;
     #[storage(read)] fn get_deep() -> Pool;
     // #[storage(read)] fn get_brood() -> Pool;
@@ -37,6 +37,7 @@ abi Quid {
     #[storage(read, write)] fn update_longs(); 
     #[storage(read, write)] fn update_shorts(); 
 
+    #[storage(read)] fn get_price() -> u64;
     // TODO uncomment these oracle update functions
     #[storage(read, write)] fn set_price(price: u64);
     // #[storage(read, write)] fn set_vol(vol: u64);

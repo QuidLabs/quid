@@ -497,6 +497,12 @@ I don't remember if it's hardcoded for 10x leverage
             }
             // TODO massive action regarding take profits from DP based on contribution to solvency
             // take losses equivalent to profits...the rest of the losses are saved until withdrawals
+           
+            // what if fetch_pledge can't absorb the value of the short debt into the ETH deposit, 
+            // should it simply detract from the quid deposit?
+
+            
+           
             // TODO this will remove the pledge if it finds zeroes
             // storage.save_pledge(&id, &mut pledge, long_touched, short_touched);
             // storage.pledges.insert(who, pledge); // state is updated before being modified by function call that invoked fetch
@@ -753,6 +759,11 @@ impl Quid for Contract
         storage.crank.write(crank);
     }
 
+    #[storage(read)] fn get_price() -> u64 {
+        let crank = storage.crank.read();
+        return crank.price;
+    }
+
     #[payable]
     #[storage(read, write)] fn borrow(amount: u64, short: bool) { // amount in QD 
         let crank = storage.crank.read();
@@ -826,7 +837,7 @@ impl Quid for Contract
 
     // Close out caller's borrowing position by paying
     // off all pledge's own debt with own collateral
-    #[storage(read, write)] fn fold(short: bool, amount: ) { 
+    #[storage(read, write)] fn fold(short: bool ) { 
         // TODO take an amount, if amount is zero
         // then fold the whole pledge
         // otherwise shrink by amount
@@ -1387,6 +1398,9 @@ impl Quid for Contract
     let mut bought: u64 = 0; // ETH collateral to be released from deepPool's long portion
     let mut redempt: u64 = 0; // amount of QD debt being cleared from the DP
     let mut amt = quid; 
+    // TODO on average, are the auto-clips bad? like are you better off, 
+    // on average, letting it dip between 90 and 99 rather than shrinking it 
+    // on every price move? won't that just effectively make you lose more of your position?
     // turnFrom(quid, false, 10); // TODO 10 hardcoded
     if amt > 0 {  // fund redemption by burning against pending DP debt
         let mut deep = storage.deep.read();
