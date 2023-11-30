@@ -76,7 +76,8 @@ storage { // live deeply, brooder
         long: Pod { credit: 0, debit: 0, }, // QD, ETH
         short: Pod { credit: 0, debit: 0, }, // ETH, QD
     }, 
-    
+    // if pay 2x APR make licked pledge debt negative in LP
+    // kept by pledge until someone offers more for their coll
     // negatively charged QD
     // external liquidity in to pay for APR.
     // they also bear losses first from DP...
@@ -871,20 +872,26 @@ impl Quid for Contract
             // there in the first place...but since we redeemed
             // the QD that was collat, we were able to clear some
             // long liquidatons along the way, destroying debt
-            // brood.debit += 
+            // brood.debit += DP went to the garden took a little dip 
         } else { // TODO all the same logic as above applies in shrink
             let eth = ratio(ONE, pledge.live.long.debit, crank.price);
-            invert(eth);
-             // TODO dont go into deep first go into SP
+            invert(eth); // get extra QD from DP short? if more needed
+            // reduce CRs of LP positions (never eat into orig collat)
+            // TODO dont go into deep first go into SP
             // if SP wants to withdraw, QD value only
             // DP coll goes into SP, debt goes into LP
             // verify with borrow function 
+            // priority queue? vulnerability
+            // where a withdrawal takes everyone's APR
             churn(pledge.live.long.debit, false, sender);
         }   
     }
 
     // TODO save current stake as old_stake local var, set new stake
     // update totals, rebalance for long if long, short if short
+    // This should be handled as part of sync in fetch_pledge 
+    
+
     // - deposit with insurance (pay by absorbing licks) or without
     // - get paid premiums from shorts and longs, you can retrieve
     // - gains, but prinicipal is time-locked, no price insurance
