@@ -729,29 +729,33 @@ impl Quid for Contract
     // getters just for frontend testing
     #[storage(read)] fn get_live() -> Pool { return storage.live.read(); }
     #[storage(read)] fn get_deep() -> Pool { return storage.deep.read(); }
-    // #[storage(read)] fn get_brood() -> Pool { return storage.brood.read(); }
+    #[storage(read)] fn get_brood() -> Pod { 
+        return storage.brood.read();
+    }
 
     #[storage(read)] fn get_pledge_live(who: Address) -> Pool {
         let key = storage.pledges.get(who);
         if !(key.try_read().is_none()) {
+            log(69);
             let pledge = key.read();
             return pledge.live;
         }
         return Pool {
-            long: Pod { credit: 0, debit: 0 },
+            
+            long: Pod { credit: 42, debit: 0 },
             short: Pod { credit: 0, debit: 0 },
         }
     }
-    #[storage(read)] fn get_pledge_brood(who: Address, eth: bool) -> u64 { 
+    #[storage(read)] fn get_pledge_brood(who: Address) -> Pod { 
         let key = storage.pledges.get(who);
         if !(key.try_read().is_none()) {
             let pledge = key.read();
-            if eth {
-                return pledge.ether;
-            }
-            return pledge.quid;
+            return Pod { 
+                credit: pledge.quid,
+                debit: pledge.ether
+            }; 
         }
-        return 0;
+        return Pod { credit: 0, debit: 0 };
     }   
 
     #[storage(read, write)] fn set_price(price: u64) {
@@ -934,11 +938,15 @@ impl Quid for Contract
             }
         } 
         else if msg_asset_id() == BASE_ASSET_ID { // ETH
-            if live { 
+            
+            if live == true { 
+               
                 let mut pool = storage.live.read(); 
-                if long { pledge.live.long.credit += amt;
+                if long {
+                    
+                    pledge.live.long.credit += amt; // EVEN THO I JUST WROTE TO IT HERE
+                    log(pledge.live.long.credit);
                     pool.long.credit += amt;
-                    storage.live.write(pool);
                 } 
                 else { 
                     if pledge.live.short.debit > 0 {
@@ -953,16 +961,20 @@ impl Quid for Contract
                         // deposit QD collat
                     }   
                 }
+                storage.live.write(pool);
             }
-            else { pledge.ether += amt;
+            else { // i.e. live == false
+                log(42);
+                pledge.ether += amt;
                 let mut pod = storage.brood.read();
                 pod.debit += amt;
                 storage.brood.write(pod);
             }
         } 
         else {
-            revert(42);
+            revert(33);
         }
+        //log(pledge.live.long.credit); // THIS LOG SHOWS ZERO
         storage.pledges.insert(sender, pledge); // TODO save_pledge
     }
 

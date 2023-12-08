@@ -1,10 +1,10 @@
 use fuels::{
     accounts::wallet::WalletUnlocked,
     types::{
-        ContractId,
-        Identity
+        ContractId, Identity, 
     },
     prelude::{ abigen, Contract, Config,
+        CallParameters,
         AssetConfig, AssetId, Bech32Address,
         LoadConfiguration, StorageConfiguration, 
         TxParameters, WalletsConfig, BASE_ASSET_ID,
@@ -27,7 +27,6 @@ abigen!(
 const STORAGE_CONFIGURATION_PATH: &str = "out/debug/QD-storage_slots.json";
 const CONTRACT_BIN_PATH: &str = "out/debug/QD.bin";
 
-
 pub(crate) struct User {
     pub(crate) contract: QD<WalletUnlocked>,
     pub(crate) wallet: WalletUnlocked,
@@ -40,7 +39,7 @@ pub(crate) fn base_asset_contract_id() -> ContractId {
 // This function will setup the test environment for you. It will return a tuple containing the contract instance and the script instance.
 pub async fn setup() -> (User, User) {
     let number_of_coins = 2;
-    let coin_amount = 1_000_000_000;
+    let coin_amount = 1_000_000_000_000;
     let number_of_wallets = 3;
     let base_asset = AssetConfig {
         id: BASE_ASSET_ID,
@@ -95,11 +94,10 @@ pub async fn setup() -> (User, User) {
 }
 
 #[tokio::test]
-async fn test_script() {
+async fn test_set_price() {  // test set price and get price to make sure storage works
     // Call the setup function to deploy the contract and create the contract instance
     let (depositor, borrower) = setup().await;
 
-    // Increment the counter
     depositor.contract
         .methods()
         .set_price(42)
@@ -107,7 +105,6 @@ async fn test_script() {
         .await
         .unwrap();
 
-    // Get the current value of the counter
     let result = depositor.contract
         .methods()
         .get_price()
@@ -116,7 +113,46 @@ async fn test_script() {
         .unwrap().value;
 
     assert_eq!(result, 42);
-
-    // test set price and get price to make sure storage works
-    // assert_eq!(result, 0);
 }
+
+#[tokio::test]
+async fn test_deposit_withdraw() {
+    // Call the setup function to deploy the contract and create the contract instance
+    let (depositor, borrower) = setup().await;
+    
+    let params = CallParameters::new(42, BASE_ASSET_ID, 3000); // 3k is gas
+    
+    let res = depositor.contract
+        .methods()
+        .deposit(true, true) // TODO FALSE POSITIVE! i'm passing in true, but it goes into false leg
+        .call_params(params)
+        .unwrap()
+        .call()
+        .await
+        .unwrap()
+        .decode_logs_with_type::<u64>().unwrap();
+    assert_eq!(res, vec![42]);
+    
+    // let result = depositor.contract
+    //     .methods()
+    //     .get_live()
+    //     .call()
+    //     .await
+    //     .unwrap();
+   
+    let address = depositor.wallet.address();
+    // let result = depositor.contract
+    //     .methods()
+    //     .get_pledge_live(address)
+    //     .call()
+    //     .await
+    //     .unwrap()
+    //     //.decode_logs();
+    //     .decode_logs_with_type::<u64>().unwrap();
+    // assert_eq!(result, vec![69]);
+    
+
+    // println!("credit @ {:?}", result.unwrap);
+    // println!("debit {0}", pod.debit);
+}
+
