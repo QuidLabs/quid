@@ -92,6 +92,7 @@ storage { // live deeply, brooder
         // short: Pod, { credit: 0, debit: 0} // QD, ETH in LP
     }, 
     crank: Crank = Crank { 
+        kill_cr: 
         last_update: 0, price: ONE, // eth price in usd / qd per usd
         vol: ONE, last_oracle: 0, // timestamp of last oracle update, for assert
         // TODO in the future aggregate these into one? 
@@ -102,6 +103,7 @@ storage { // live deeply, brooder
             sum_w_k: 0, k: 0,
             // solvency: UFP128::zero(),
             solvency: 0,
+            kill_cr: ONE,
         },
         short: Medianizer {
             done: true, index: 0, // used for updating pledges 
@@ -109,6 +111,7 @@ storage { // live deeply, brooder
             sum_w_k: 0, k: 0, 
             // solvency: UFP128::zero(),
             solvency: 0,
+            kill_cr: ONE
         }
     },
     // TODO
@@ -440,6 +443,9 @@ I don't remember if it's hardcoded for 10x leverage
         }
     } else {
         pledge = key.read();
+        let brood = storage.brood.read();
+        let deep = storage.deep.read();
+        let stats = storage.stats.read();
         let crank = storage.crank.read(); // get this object from caller
         // pass it along to try_clap to save gas on reads TODO
         let mut long_touched = false;
@@ -496,14 +502,114 @@ I don't remember if it's hardcoded for 10x leverage
                 pledge.ether = nums.2;
                 short_touched = true;
             }
-            // TODO massive action regarding take profits from DP based on contribution to solvency
-            // take losses equivalent to profits...the rest of the losses are saved until withdrawals
-           
-            // what if fetch_pledge can't absorb the value of the short debt into the ETH deposit, 
-            // should it simply detract from the quid deposit?
 
+            // take profits from DP based on contribution to solvency
+            // take losses equivalent to profits...the rest deferred till withdrawal
+
+            // first some global stats, for contr. to risk calculations
+            let val_eth_sp = blood.debit;   
+            stats.val_ether_sp = val_eth_sp * crank.price;        
+            stats.val_total_sp = brood.credit + stats.val_eth_sp;
             
-           
+            // TODO uncomment when fixed point library compile error fixed
+            // also stalling issue
+            /**
+            if sp_stress(None, false) > UFP128::ZERO // stress the long side of the SolvencyPool
+            && sp_stress(None, true) > UFP128::ZERO { // stress the short side of the SolvencyPool
+                // retrieve the Pledge's pending allocation of fees 
+                
+                // stressed value of SolvencyPool's short side, exclusing given pledge
+                let s_stress_ins_x = sp_stress(Some(owner), true);
+                let s_delta = self.stats.short.stress_val - s_stress_ins_x;
+                let s_pcs = s_delta / stats.short.stress_val; // % contrib. to short solvency
+                
+                // stressed value of SolvencyPool's long side, exclusing given pledge
+                let l_stress_ins_x = sp_stress(Some(owner), false);
+                let l_delta = stats.long.stress_val - l_stress_ins_x;
+                let l_pcs = l_delta / stats.long.stress_val; // % contrib. to long solvency
+                
+                if s_pcs > UFP128::ZERO && l_pcs > UFP128::ZERO {
+                    // Calculate DeepPool shares to absorb by this pledge
+                    // TODO attack where net postive DP is drained by repeated 
+                    // micro pledge updates...limit updates to occur only once an hour
+                    let mut eth = deep.long.debit * l_pcs;
+                    let mut eth_debt = deep.short.credit * s_pcs;
+                    let mut qd_debt = deep.long.credit * l_pcs;
+                    let mut qd = deep.short.debit * s_pcs;
+                    
+                    // TODO update logic to be 1:1 (no net loss)
+                    if eth_debt >= eth 
+                    { // net loss in terms of eth
+                        let mut delta = eth_debt - eth;
+                        deep.long.debit -= eth; // the eth gain has been absorbed 
+                        if delta > 0 {
+                            // absorb as much as we can from the pledge
+                            let mut min = delta;
+                            if pledge.eth < delta {
+                                min = pledge.eth;
+                            }
+                            deep.short.credit -= min; // TODO -= delta ?
+                            pledge.eth = pledge.eth - min; // decrement user's recorded SP deposit
+                            brood.debit = brood.debit - min; // decrement deposit from SP
+                                
+                            delta -= min;
+                            if delta > 0 { 
+                                // TODO
+                                // what if fetch_pledge can't absorb the value of the short debt into the ETH deposit, 
+                                // should it simply detract from the quid deposit?
+                            }
+                        }
+                    } else 
+                    { // net gain in terms of eth 
+                        deep.short.credit -= eth_debt;
+                        deep.long.debit -= eth;
+                        eth -= eth_debt;
+                        // TODO if pledge has any CR between 100-110, take the smaller one first
+                        // add enough eth collat to long / remove enough eth debt from short
+                        // such that the new CR is > 110, repeat again for larger CR side 
+                        // remaining eth goes to SP deposit...
+                        pledge.eth += eth;
+                        brood.debit += eth;
+                    }
+                    if qd_debt >= qd 
+                    { // net loss in terms of QD
+                        let mut delta = qd_debt - qd;
+                        self.dead.short.debit -= qd; // the QD gain has been absorbed
+                        if delta > 0 {
+                            let mut min = delta;
+                            if pledge.quid < delta {
+                                min = pledge.quid;
+                            }
+                            deep.long.credit -= min; // TODO -= delta
+                            pledge.quid -= min;
+                            brood.credit -= min;
+                            delta -= min;   
+                            if delta > 0 {
+                                // TODO
+                                // use x_margin to absorb into the borrowing position, 
+                                // only remainder after x_margin should go to deferral reserve
+                              
+                            }
+                        }
+                    } else 
+                    { // net gain in terms of QD
+                        deep.long.credit -= qd_debt;
+                        deep.short.debit -= qd;
+                        qd -= qd_debt;
+                        // TODO if pledge has any CR between 100-110, take the smaller one first
+                        // let mut min = std::min(pledge.long.debit, qd);
+                        // pledge.long.debit -= min;
+                        // qd -= min;
+                        // remove enough QD debt such that CR > 110
+                        // if short CR between 100-110
+                        // add enough QD to collat such that CR > 110 
+                        // remaining QD goes to SP deposit...
+                        pledge.quid = pledge.quid + qd;
+                        brood.credit = brood.credit + qd; 
+                    }
+                }
+            }
+            */           
             // TODO this will remove the pledge if it finds zeroes
             // storage.save_pledge(&id, &mut pledge, long_touched, short_touched);
             // storage.pledges.insert(who, pledge); // state is updated before being modified by function call that invoked fetch
