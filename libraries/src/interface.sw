@@ -7,10 +7,12 @@ abi Quid {
     // getters just for frontend testing    
     #[storage(read)] fn get_live() -> Pool;
     #[storage(read)] fn get_deep() -> Pool;
-    // #[storage(read)] fn get_brood() -> Pool;
+    #[storage(read)] fn get_brood() -> Pod;
 
+    // TODO create separate abi Info
+    // e.g. https://github.com/FuelLabs/sway-applications/blob/master/fundraiser/project/contracts/fundraiser-contract/src/interface.sw#L105
     #[storage(read)] fn get_pledge_live(who: Address) -> Pool;
-    #[storage(read)] fn get_pledge_brood(who: Address, eth: bool) -> u64;
+    #[storage(read)] fn get_pledge_brood(who: Address) -> Pod;
     
     #[payable]
     #[storage(read, write), payable] fn deposit(live: bool, long: bool);

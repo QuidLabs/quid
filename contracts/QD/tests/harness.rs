@@ -131,7 +131,7 @@ async fn test_deposit_withdraw() {
         .await
         .unwrap()
         .decode_logs_with_type::<u64>().unwrap();
-    assert_eq!(res, vec![42]);
+    assert_eq!(res, vec![42]); // this should not be happening !
     
     // let result = depositor.contract
     //     .methods()

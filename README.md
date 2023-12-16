@@ -1,4 +1,6 @@
-# Testing instructions
+# 👁‍🗨U!D
+
+## Testing instructions
 
 **Note: there are many TODOs in `main.sw`!**
 

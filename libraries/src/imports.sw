@@ -124,9 +124,13 @@ pub struct Medianizer {
     k: u64, // approx. index of median (+/- 1)
     // TODO uncomment after fixed point compilation error is fixed
     // solvency: UFP128,
-    solvency: u64
+    solvency: u64,
+    kill_cr: u64
 }
 
+// The name crank is based on
+// the idea of a cranshaft as
+// it is for Serum on Solana
 pub struct Crank {
     last_update: u64, // timestamp of last time Crank was updated
     price: u64, // timestamp of last time price was update
