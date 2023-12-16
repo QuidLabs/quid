@@ -92,7 +92,6 @@ storage { // live deeply, brooder
         // short: Pod, { credit: 0, debit: 0} // QD, ETH in LP
     }, 
     crank: Crank = Crank { 
-        kill_cr: 
         last_update: 0, price: ONE, // eth price in usd / qd per usd
         vol: ONE, last_oracle: 0, // timestamp of last oracle update, for assert
         // TODO in the future aggregate these into one? 
@@ -439,13 +438,13 @@ I don't remember if it's hardcoded for 10x leverage
             storage.addresses.push(owner);
             return pledge;
         } else {
-            revert(42);
+            revert(44);
         }
     } else {
         pledge = key.read();
         let brood = storage.brood.read();
         let deep = storage.deep.read();
-        let stats = storage.stats.read();
+        let mut stats = storage.stats.read();
         let crank = storage.crank.read(); // get this object from caller
         // pass it along to try_clap to save gas on reads TODO
         let mut long_touched = false;
@@ -507,9 +506,11 @@ I don't remember if it's hardcoded for 10x leverage
             // take losses equivalent to profits...the rest deferred till withdrawal
 
             // first some global stats, for contr. to risk calculations
-            let val_eth_sp = blood.debit;   
+            let val_eth_sp = brood.debit;   
             stats.val_ether_sp = val_eth_sp * crank.price;        
-            stats.val_total_sp = brood.credit + stats.val_eth_sp;
+            stats.val_total_sp = brood.credit + stats.val_ether_sp;
+
+            // TODO write stats
             
             // TODO uncomment when fixed point library compile error fixed
             // also stalling issue
@@ -1755,11 +1756,13 @@ impl Quid for Contract
     let old_brood = storage.brood.read();
 
     if short {
-        nums = short_save(SPod, LPod, price);
+        nums = short_save(SPod, LPod, price); // TODO use modifiable kill_cr
         cr = calc_cr(price, nums.1, nums.3, true); // side
         let mut new_live = storage.live.read();
         let mut new_brood = storage.brood.read();
         let mut save = false;
+
+        // TODO  use modifiable kill_cr
         
         // the result of short_save was...unsuccessful
         if cr < ONE { // fully liquidating the short ^
