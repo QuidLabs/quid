@@ -7,6 +7,7 @@ use libraries::{
 };
 
 use std::{
+    u128::U128,
     hash::Hash,
     auth::msg_sender,
     block::timestamp,
@@ -29,28 +30,28 @@ use std::{
     storage::storage_vec::*,
 };
 
-// use signed_integers::i64::I64;
-// use fixed_point::ufp128::UFP128;
-// use fixed_point::ifp256::IFP256;
+use signed_integers::i64::I64;
+use fixed_point::ufp128::UFP128;
+use fixed_point::ifp256::IFP256;
 
 storage { // live deeply, brooder
     pledges: StorageMap<Address, Pledge> = StorageMap {},
     addresses: StorageVec<Address> = StorageVec {}, // store all pledge addresses
     votes: StorageMap<Address, (u64, u64)> = StorageMap {}, // short then long
     stats: PledgeStats = PledgeStats { // global stats
-        // TODO uncomment after fixed point compilation error is fixed
-        // long: Stats { val_ether: UFP128::zero(), 
-        //     stress_val: UFP128::zero(), avg_val: UFP128::zero(),
-        //     stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
-        //     premiums: UFP128::zero(), rate: UFP128::zero(),
-        // }, 
-        // short: Stats { val_ether: UFP128::zero(), 
-        //     stress_val: UFP128::zero(), avg_val: UFP128::zero(),
-        //     stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
-        //     premiums: UFP128::zero(), rate: UFP128::zero(),
-        // }, 
-        // val_ether_sp: UFP128::zero(), 
-        // val_total_sp: UFP128::zero(),
+        long: Stats { val_ether: UFP128::zero(), 
+            stress_val: UFP128::zero(), avg_val: UFP128::zero(),
+            stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
+            premiums: UFP128::zero(), rate: UFP128::zero(),
+        }, 
+        short: Stats { val_ether: UFP128::zero(), 
+            stress_val: UFP128::zero(), avg_val: UFP128::zero(),
+            stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
+            premiums: UFP128::zero(), rate: UFP128::zero(),
+        }, 
+        val_ether_sp: UFP128::zero(), 
+        val_total_sp: UFP128::zero(),
+        /**
         long: Stats { val_ether: 0, 
             stress_val: 0, avg_val: 0,
             stress_loss: 0, avg_loss: 0,
@@ -63,6 +64,7 @@ storage { // live deeply, brooder
         }, 
         val_ether_sp: 0, 
         val_total_sp: 0,
+        */
     },
     live: Pool = Pool { // Active borrower assets
         long: Pod { credit: 0, debit: 0, }, // ETH, QD
@@ -101,16 +103,16 @@ storage { // live deeply, brooder
             target: 137, // https://science.howstuffworks.com/dictionary/physics-terms/why-is-137-most-magical-number.htm
             scale: ONE,
             sum_w_k: 0, k: 0,
-            // solvency: UFP128::zero(),
-            solvency: 0,
+            solvency: UFP128::zero(),
+            // solvency: 0,
             kill_cr: ONE,
         },
         short: Medianizer {
             done: true, index: 0, // used for updating pledges 
             target: 137, scale: ONE,
             sum_w_k: 0, k: 0, 
-            // solvency: UFP128::zero(),
-            solvency: 0,
+            solvency: UFP128::zero(),
+            // solvency: 0,
             kill_cr: ONE
         }
     },
@@ -276,9 +278,6 @@ I don't remember if it's hardcoded for 10x leverage
  *  in the same range range(1, len(Weights)) such that 
  *  sum(Weights[0:k]) > sum(Weights) / 2
 */
-
-// TODO uncomment after fixed point compilation error is fixed 
-/**
 #[storage(read, write)] fn rebalance(new_stake: u64, new_vote: u64, 
                                      old_stake: u64, old_vote: u64,
                                      short: bool) { 
@@ -352,13 +351,12 @@ I don't remember if it's hardcoded for 10x leverage
     }
     storage.crank.write(crank);
 }
-*/
 
 #[storage(read, write)] fn save_pledge(account: Address, pledge: Pledge, long_touched: bool, short_touched: bool) {
     let mut dead_short = false;
     let mut dead_long = false;
     if short_touched {
-        // TODO uncomment when following TODOs have been solved
+        // TODO when following TODOs have been solved
         // let returned = storage.sorted_shorts.remove(pledge.index_short);
         // assert(returned.index_short == pledge.index_short);
         // TODO use old values from returned variable and new values from pledge variable
@@ -380,7 +378,7 @@ I don't remember if it's hardcoded for 10x leverage
             dead_short = true;
         }
     }
-    if long_touched { // TODO uncomment when above TODOs have been solved
+    if long_touched { // TODO when above TODOs have been solved
         // let returned = storage.sorted_longs.remove(pledge.index_long);
         // assert(returned.index_long == pledge.index_long);
         // TODO use old values from returned variable and new values from pledge variable
@@ -404,20 +402,20 @@ I don't remember if it's hardcoded for 10x leverage
             long: Pod { credit: 0, debit: 0 },
             short: Pod { credit: 0, debit: 0 },
         },
-        stats: PledgeStats {       
-            // TODO uncomment after fixed point compilation error is fixed         
-            // long: Stats { val_ether: UFP128::zero(), 
-            //     stress_val: UFP128::zero(), avg_val: UFP128::zero(),
-            //     stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
-            //     premiums: UFP128::zero(), rate: UFP128::zero(),
-            // }, 
-            // short: Stats { val_ether: UFP128::zero(), 
-            //     stress_val: UFP128::zero(), avg_val: UFP128::zero(),
-            //     stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
-            //     premiums: UFP128::zero(), rate: UFP128::zero(),
-            // }, 
-            // val_ether_sp: UFP128::zero(), 
-            // val_total_sp: UFP128::zero(),
+        stats: PledgeStats {         
+            long: Stats { val_ether: UFP128::zero(), 
+                stress_val: UFP128::zero(), avg_val: UFP128::zero(),
+                stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
+                premiums: UFP128::zero(), rate: UFP128::zero(),
+            }, 
+            short: Stats { val_ether: UFP128::zero(), 
+                stress_val: UFP128::zero(), avg_val: UFP128::zero(),
+                stress_loss: UFP128::zero(), avg_loss: UFP128::zero(),
+                premiums: UFP128::zero(), rate: UFP128::zero(),
+            }, 
+            val_ether_sp: UFP128::zero(), 
+            val_total_sp: UFP128::zero(),
+            /**
             long: Stats { val_ether: 0, 
                 stress_val: 0, avg_val: 0,
                 stress_loss: 0, avg_loss: 0,
@@ -430,6 +428,7 @@ I don't remember if it's hardcoded for 10x leverage
             }, 
             val_ether_sp: 0, 
             val_total_sp: 0,
+            */
         }, ether: 0, quid: 0,
        // index_long: 0,
        // index_short: 0,
@@ -507,14 +506,12 @@ I don't remember if it's hardcoded for 10x leverage
             // take losses equivalent to profits...the rest deferred till withdrawal
 
             // first some global stats, for contr. to risk calculations
-            let val_eth_sp = brood.debit;   
-            stats.val_ether_sp = val_eth_sp * crank.price;        
-            stats.val_total_sp = brood.credit + stats.val_ether_sp;
+            let val_eth_sp = UFP128::from_uint(brood.debit);   
+            stats.val_ether_sp = val_eth_sp * UFP128::from_uint(crank.price);
+            stats.val_total_sp = UFP128::from_uint(brood.credit) + stats.val_ether_sp;
 
-            // TODO write stats
+            // TODO write to stats
             
-            // TODO uncomment when fixed point library compile error fixed
-            // also stalling issue
             /**
             if sp_stress(None, false) > UFP128::ZERO // stress the long side of the SolvencyPool
             && sp_stress(None, true) > UFP128::ZERO { // stress the short side of the SolvencyPool
@@ -620,7 +617,6 @@ I don't remember if it's hardcoded for 10x leverage
     }
 }
 
-/**
 #[storage(read, write)] fn stress_short_pledge(owner: Address) { 
     let mut stats = storage.stats.read();
     let mut live = storage.live.read();
@@ -721,8 +717,7 @@ I don't remember if it's hardcoded for 10x leverage
         save_pledge(owner, p, true, false);
     }
 }
-*/
-/**
+
 #[storage(read, write)] fn stress_long_pledge(owner: Address) { 
     let mut stats = storage.stats.read();
     let mut live = storage.live.read();
@@ -831,7 +826,7 @@ I don't remember if it's hardcoded for 10x leverage
         save_pledge(owner, p, true, false);
     }
 }
-*/
+
 impl Quid for Contract 
 {    
     // getters just for frontend testing
@@ -1192,23 +1187,26 @@ impl Quid for Contract
             let stop = start + many;
             while start < stop { 
                 let id = storage.sorted_shorts.get(start).unwrap().read();
-                // stress_short_pledge(id); // TODO uncomment after Sway compiler fixed
-                // TODO delete ~20 lines below after uncommenting the line above
-                let mut pledge = fetch_pledge(id, false, false);
-                let mut due = pledge.live.short.credit / 6000; // roughly 16% / 365 / 3 times a day
                 
-                pledge.live.short.credit -= due; // the user pays their due by losing a bit of QD collateral
-                live.short.credit -= due; // reduce QD collateral in the LivePool
+                // TODO uncomment this one line after compiler is fixed
+                // stress_short_pledge(id);
+                
+
+                // let mut pledge = fetch_pledge(id, false, false);
+                // let mut due = pledge.live.short.credit / 6000; // roughly 16% / 365 / 3 times a day
+                
+                // pledge.live.short.credit -= due; // the user pays their due by losing a bit of QD collateral
+                // live.short.credit -= due; // reduce QD collateral in the LivePool
                     
-                // pay SolvencyProviders by reducing how much they're owed to absorb in QD debt
-                if deep.long.credit > due { 
-                    deep.long.credit -= due;
-                } else { // take the remainder and add it to QD collateral to be absorbed from DeepPool
-                    due -= deep.long.credit;
-                    deep.long.credit = 0;
-                    deep.short.debit += due;
-                }
-                storage.pledges.insert(id, pledge);     
+                // // pay SolvencyProviders by reducing how much they're owed to absorb in QD debt
+                // if deep.long.credit > due { 
+                //     deep.long.credit -= due;
+                // } else { // take the remainder and add it to QD collateral to be absorbed from DeepPool
+                //     due -= deep.long.credit;
+                //     deep.long.credit = 0;
+                //     deep.short.debit += due;
+                // }
+                // storage.pledges.insert(id, pledge);     
                 crank.short.index += 1;
                 start += 1;
             }
@@ -1245,24 +1243,26 @@ impl Quid for Contract
             let stop = start + many;
             while start < stop { 
                 let id = storage.sorted_longs.get(start).unwrap().read();
-                // stress_long_pledge(id); // TODO uncomment after Sway compiler fixed
-                // TODO delete ~20 lines below after uncommenting the line above
-                let mut pledge = fetch_pledge(id, false, false);
-                let mut due = pledge.live.long.credit / 6000; // roughly 16% / 365 / 3 times a day
-                let mut due_in_ether = ratio(ONE, crank.price, due);
-                // Debit Pledge's long side for duration
-                // (it's credited with ether on creation)
-                pledge.live.long.credit -= due_in_ether; 
-                live.long.credit -= due_in_ether;
-                // pay SolvencyProviders by reducing how much they're owed to absorb in ether debt
-                if deep.short.credit > due_in_ether { 
-                    deep.short.credit -= due_in_ether;
-                } else { // take the remainder and add it to ether collateral to be absorbed from DeepPool
-                    due_in_ether -= deep.short.credit;
-                    deep.short.credit = 0;
-                    deep.long.debit += due_in_ether;
-                }  
-                storage.pledges.insert(id, pledge);
+                
+                // stress_long_pledge(id); // TODO uncomment this one line after compiler is fixed
+                
+                
+                // let mut pledge = fetch_pledge(id, false, false);
+                // let mut due = pledge.live.long.credit / 6000; // roughly 16% / 365 / 3 times a day
+                // let mut due_in_ether = ratio(ONE, crank.price, due);
+                // // Debit Pledge's long side for duration
+                // // (it's credited with ether on creation)
+                // pledge.live.long.credit -= due_in_ether; 
+                // live.long.credit -= due_in_ether;
+                // // pay SolvencyProviders by reducing how much they're owed to absorb in ether debt
+                // if deep.short.credit > due_in_ether { 
+                //     deep.short.credit -= due_in_ether;
+                // } else { // take the remainder and add it to ether collateral to be absorbed from DeepPool
+                //     due_in_ether -= deep.short.credit;
+                //     deep.short.credit = 0;
+                //     deep.long.debit += due_in_ether;
+                // }  
+                // storage.pledges.insert(id, pledge);
                 crank.long.index += 1;
                 start += 1;
             }
@@ -1272,7 +1272,6 @@ impl Quid for Contract
             }
         } 
         storage.crank.write(crank);
-        // TODO uncomment these lines after sway compiler is fixed
         storage.live.write(live);
         storage.deep.write(deep);        
     }  
@@ -1290,16 +1289,19 @@ impl Quid for Contract
             // TODO make the constant an enum that can be one of a few consts based on governance?
             if time_delta >= EIGHT_HOURS {
                 let price = crank.price;
-                stats.val_ether_sp = // UFP128::from_uint(
-                    ratio(price, brood.debit, ONE);
-                // );
-                // stats.val_total_sp = UFP128::from_uint(brood.credit) + stats.val_ether_sp;
-                stats.val_total_sp = brood.credit + stats.val_ether_sp;
+                stats.val_ether_sp = UFP128::from_uint(
+                    ratio(price, brood.debit, ONE)
+                );
+                stats.val_total_sp = UFP128::from_uint(brood.credit) + stats.val_ether_sp;
+                // stats.val_total_sp = brood.credit + stats.val_ether_sp;
                 storage.stats.write(stats);
-                // TODO uncomment these lines when compiler is fixed
+                // TODO uncomment these 4 lines when compiler is fixed
                 // sp_stress(None, false); // stress the long side of the SolvencyPool
                 // sp_stress(None, true); // stress the short side of the SolvencyPool
-                // risk(false); risk(true); // calculate solvency and scale factor 
+                // calculate solvency and scale factor 
+                // risk(false); 
+                // risk(true); 
+                
                 crank.long.done = false;
                 crank.short.done = false;
                 crank.last_update = timestamp();
@@ -1312,8 +1314,6 @@ impl Quid for Contract
     }
 }
 
-// TODO uncomment after fixed point compilation error is fixed
-/**
 #[storage(read, write)] fn sp_stress(maybe_addr: Option<Address>, short: bool) -> UFP128 {
     let mut stats = storage.stats.read();
     let crank = storage.crank.read();
@@ -1397,9 +1397,7 @@ impl Quid for Contract
         return UFP128::zero();
     }
 }
-*/
 
-/**
 #[storage(read, write)] fn risk(short: bool) {
     let mut crank = storage.crank.read();
     let mut stats = storage.stats.read();
@@ -1457,7 +1455,6 @@ impl Quid for Contract
     let scr = own_n - own_s;
     require(scr > IFP256::zero(), SCRerror::CannotBeZero);
     let solvency = own_n / scr; // represents capital adequacy to back $QD
-    // TODO uncomment and replace short target
     if short {
         let mut target = crank.short.target;
         let mut scale = IFP256::from_uint(target) / solvency;
@@ -1475,7 +1472,6 @@ impl Quid for Contract
     storage.crank.write(crank);
     // storage.stats.write(stats);
 }
-*/
 
 // TODO find the biggest one first, with the lowest CR (less than 1.1)
 // keep going down by size until you find one with appropriate CR

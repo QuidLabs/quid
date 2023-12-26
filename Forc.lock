@@ -2,7 +2,9 @@
 name = "QD"
 source = "member"
 dependencies = [
+    "fixed_point",
     "libraries",
+    "signed_integers",
     "std",
 ]
 

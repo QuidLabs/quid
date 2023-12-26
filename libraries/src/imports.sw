@@ -6,8 +6,8 @@ use std::{
     u128::U128,
 };
 
-// use fixed_point::ufp128::UFP128;
-// use fixed_point::ifp256::IFP256;
+use fixed_point::ufp128::UFP128;
+use fixed_point::ifp256::IFP256;
 
 pub enum VoteError {
     BadVote: (),
@@ -52,32 +52,30 @@ pub struct Pool { // Pools have a long Pod and a short Pod
     short: Pod, // debt and collat of ETH borrowers
 } 
 
-pub struct Stats {
-    // TODO uncomment after fixed point compilation error is fixed
-    // val_ether: UFP128, // $ value of ETH assets
-    // stress_val: UFP128, //  $ value of the Solvency Pool in bad market stress, tail risk
-    // avg_val: UFP128, // $ value of the Solvency Pool in average stress, 25-50 % price shock
-    // stress_loss: UFP128, // % loss that Solvency pool would suffer in a bad stress event
-    // avg_loss: UFP128, // % loss that Solvency pool would suffer in an avg stress event
-    // premiums: UFP128, // $ amount of premiums borrower would pay in a year 
-    // rate: UFP128, // annualized rate borrowers pay in periodic premiums 
-    val_ether: u64,
-    stress_val: u64,
-    avg_val: u64,
-    stress_loss: u64,
-    avg_loss: u64,
-    premiums: u64,
-    rate: u64
+pub struct Stats {  
+    val_ether: UFP128, // $ value of ETH assets
+    stress_val: UFP128, //  $ value of the Solvency Pool in bad market stress, tail risk
+    avg_val: UFP128, // $ value of the Solvency Pool in average stress, 25-50 % price shock
+    stress_loss: UFP128, // % loss that Solvency pool would suffer in a bad stress event
+    avg_loss: UFP128, // % loss that Solvency pool would suffer in an avg stress event
+    premiums: UFP128, // $ amount of premiums borrower would pay in a year 
+    rate: UFP128, // annualized rate borrowers pay in periodic premiums 
+    // val_ether: u64,
+    // stress_val: u64,
+    // avg_val: u64,
+    // stress_loss: u64,
+    // avg_loss: u64,
+    // premiums: u64,
+    // rate: u64
 }
 
 pub struct PledgeStats {
     long: Stats,
     short: Stats,
-    // TODO uncomment after fixed point compilation error is fixed
-    // val_ether_sp: UFP128, // $ value of the ETH solvency deposit
-    // val_total_sp: UFP128, // total $ value of val_eth + $QD solvency deposit
-    val_ether_sp: u64,
-    val_total_sp: u64
+    val_ether_sp: UFP128, // $ value of the ETH solvency deposits
+    val_total_sp: UFP128, // total $ value of val_eth + $QD solvency deposit
+    // val_ether_sp: u64,
+    // val_total_sp: u64
 }
 
 /**
@@ -122,9 +120,8 @@ pub struct Medianizer {
     scale: u64, // TODO precision
     sum_w_k: u64, // sum(W[0..k])
     k: u64, // approx. index of median (+/- 1)
-    // TODO uncomment after fixed point compilation error is fixed
-    // solvency: UFP128,
-    solvency: u64,
+    solvency: UFP128,
+    // solvency: u64,
     kill_cr: u64
 }
 
@@ -149,12 +146,12 @@ pub const TWO: u64 = ONE * 2;
 pub const MIN_CR: u64 = 1_100_000_000;
 pub const POINT_SIX: u64 = 600_000_000;
 
-// pub const MIN_PER_CENT = UFP128::from_uint(42_000_000);
-// pub const MAX_PER_CENT = UFP128::from_uint(333_000_000);
+pub const MIN_PER_CENT = UFP128::from_uint(42_000_000);
+pub const MAX_PER_CENT = UFP128::from_uint(333_000_000);
 
-// pub const PI = UFP128::from_uint(3141592653);
-// pub const TWO_PI = UFP128::from_uint(2 * 3141592653);
-// pub const LN_TEN = UFP128::from_uint(2302585093);
+pub const PI = UFP128::from_uint(3141592653);
+pub const TWO_PI = UFP128::from_uint(2 * 3141592653);
+pub const LN_TEN = UFP128::from_uint(2302585093);
 
 pub const PERIOD: u64 = 1095; // = (365*24)/8h of dues 
 pub const ONE_HOUR: u64 = 3600; // in secs
@@ -213,8 +210,6 @@ pub fn calc_cr(_price: u64, _surety: u64, _debt: u64, _short: bool) -> u64 {
     return 0; // this is normal, means no leverage
 }
 
-// TODO uncomment after fixed point compilation error is fixed
-/**
 // https://math.stackexchange.com/questions/2621005/
 // The absolute value of the error should be less than 4.5 e-4.
 pub fn RationalApproximation(t: UFP128) -> UFP128 {  
@@ -360,4 +355,3 @@ pub fn pricing(payoff: UFP128, scale: UFP128, val_crypto: UFP128, val_quid: UFP1
     }
     // rate *= calibrate; // TODO before returning
 }
-*/
