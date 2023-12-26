@@ -7,7 +7,7 @@ authors = ["John Quid <john@quid.io>"]
 license = "BSL-1.1"
 
 [dev-dependencies]
-fuels = { version = "0.48", features = ["fuel-core-lib"] }
+fuels = { version = "0.53", features = ["fuel-core-lib"] }
 tokio = { version = "1.12", features = ["rt", "macros"] }
 
 [[test]]

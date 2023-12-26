@@ -1,21 +1,35 @@
 [[package]]
-name = 'QD'
-source = 'member'
+name = "QD"
+source = "member"
 dependencies = [
-    'libraries',
-    'std',
+    "libraries",
+    "std",
 ]
 
 [[package]]
-name = 'core'
-source = 'path+from-root-EB296BD18C0E4CC4'
+name = "core"
+source = "path+from-root-B77DA2F383183718"
 
 [[package]]
-name = 'libraries'
-source = 'path+from-root-163A23D64F0174CB'
-dependencies = ['std']
+name = "fixed_point"
+source = "git+https://github.com/fuellabs/sway-libs?branch=master#5d69f665207158517eba14c35c7d28cb1cb93aa9"
+dependencies = ["std"]
 
 [[package]]
-name = 'std'
-source = 'git+https://github.com/fuellabs/sway?tag=v0.44.1#04a597093e7441898933dd412b8e4dc6ac860cd3'
-dependencies = ['core']
+name = "libraries"
+source = "path+from-root-163A23D64F0174CB"
+dependencies = [
+    "fixed_point",
+    "signed_integers",
+    "std",
+]
+
+[[package]]
+name = "signed_integers"
+source = "git+https://github.com/fuellabs/sway-libs?branch=master#5d69f665207158517eba14c35c7d28cb1cb93aa9"
+dependencies = ["std"]
+
+[[package]]
+name = "std"
+source = "git+https://github.com/fuellabs/sway?tag=v0.48.1#6886ef050ce62afd3fe3186ed562fd33bd76bffa"
+dependencies = ["core"]

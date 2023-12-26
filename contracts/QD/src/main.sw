@@ -7,6 +7,7 @@ use libraries::{
 };
 
 use std::{
+    hash::Hash,
     auth::msg_sender,
     block::timestamp,
     call_frames::{
@@ -892,7 +893,7 @@ impl Quid for Contract
         let mut qd = 0;
 
         // First take care of attached deposit by appending collat
-        if msg_asset_id() == contract_id().into() { // QD
+        if msg_asset_id() == AssetId::from(contract_id().into()) { // QD
             if !short && deposit > 0 {
                 eth = redeem(deposit);
             }   
@@ -1014,7 +1015,7 @@ impl Quid for Contract
         require(amt > 0, AssetError::BelowMinimum);
         let mut pledge = fetch_pledge(sender, true, true);
 
-        if msg_asset_id() == contract_id().into() { // QD
+        if msg_asset_id() == AssetId::from(contract_id().into()) { // QD
             require(amt > ONE, AssetError::BelowMinimum); 
             if live { // adding collat to LP
                 let mut pool = storage.live.read(); 
@@ -1079,7 +1080,8 @@ impl Quid for Contract
             }
         } 
         else {
-            revert(33);
+            log(54);
+            //revert(33);
         }
         //log(pledge.live.long.credit); // THIS LOG SHOWS ZERO
         storage.pledges.insert(sender, pledge); // TODO save_pledge
@@ -1169,7 +1171,7 @@ impl Quid for Contract
                 pod.credit -= least;
                 storage.brood.write(pod);
             }
-            transfer(Identity::Address(account), contract_id().into(), least);
+            transfer(Identity::Address(account), AssetId::from(contract_id().into()), least);
         }
         storage.pledges.insert(account, pledge); 
     }
