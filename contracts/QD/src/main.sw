@@ -1189,7 +1189,7 @@ impl Quid for Contract
                 let id = storage.sorted_shorts.get(start).unwrap().read();
                 
                 // TODO uncomment this one line after compiler is fixed
-                // stress_short_pledge(id);
+                stress_short_pledge(id);
                 
 
                 // let mut pledge = fetch_pledge(id, false, false);
@@ -1244,7 +1244,7 @@ impl Quid for Contract
             while start < stop { 
                 let id = storage.sorted_longs.get(start).unwrap().read();
                 
-                // stress_long_pledge(id); // TODO uncomment this one line after compiler is fixed
+                stress_long_pledge(id); // TODO uncomment this one line after compiler is fixed
                 
                 
                 // let mut pledge = fetch_pledge(id, false, false);
